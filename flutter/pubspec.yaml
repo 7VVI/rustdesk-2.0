@@ -144,6 +144,14 @@ flutter_icons:
 
 # The following section is specific to Flutter.
 flutter:
+  # Enable `flutter build aar` (add-to-app). The generated flutter AAR only
+  # contains the Flutter engine + dart + plugins; the Android controlled-end
+  # native code lives in the `rdsdk` library module which consumes this AAR.
+  module:
+    androidX: true
+    androidPackage: com.carriez.rdflutter
+    iosBundleIdentifier: com.carriez.flutter_hbb
+
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.

@@ -1,0 +1,68 @@
+import groovy.json.JsonSlurper
+
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+}
+
+// Same maven repos a real host app must declare to pull the Flutter module
+// (flutter_release + plugin AARs) that rdsdk depends on transitively.
+def flutterRepo = new File(rootProject.projectDir, "../build/host/outputs/repo")
+
+String findRustlsPlatformVerifierMavenDir() {
+    def dependencyText = providers.exec {
+        it.workingDir = new File("../..")
+        commandLine("cargo", "metadata", "--format-version", "1")
+    }.standardOutput.asText.get()
+    def dependencyJson = new JsonSlurper().parseText(dependencyText)
+    def pkg = dependencyJson.packages.find { it.name == "rustls-platform-verifier-android" }
+    if (pkg == null) {
+        throw new GradleException("rustls-platform-verifier-android package not found in cargo metadata!")
+    }
+    def manifestPath = file(pkg.manifest_path)
+    def mavenDir = new File(manifestPath.parentFile, "maven")
+    return mavenDir.path
+}
+
+repositories {
+    maven { url = flutterRepo.toURI().toString() }
+    maven { url = "https://storage.googleapis.com/download.flutter.io" }
+    maven {
+        url = findRustlsPlatformVerifierMavenDir()
+        metadataSources.artifact()
+    }
+}
+
+android {
+    namespace "com.example.rddemo"
+    compileSdkVersion 34
+
+    defaultConfig {
+        applicationId "com.example.rddemo"
+        minSdkVersion 22
+        targetSdkVersion 33
+        versionCode 1
+        versionName "1.0"
+    }
+
+    compileOptions {
+        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_1_8
+    }
+
+    buildTypes {
+        release {
+            // Use the debug keystore so we can assemble a signed release APK
+            // for verification without provisioning a real keystore.
+            signingConfig signingConfigs.debug
+            minifyEnabled false
+        }
+    }
+}
+
+dependencies {
+    // Depend on the controlled-end SDK. Its release variant transitively pulls
+    // the Flutter module (com.carriez.rdflutter:flutter_release) + plugins.
+    implementation project(':rdsdk')
+    implementation "androidx.appcompat:appcompat:1.6.1"
+}

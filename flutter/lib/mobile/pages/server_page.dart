@@ -947,12 +947,82 @@ void androidChannelInit() {
             }
             break;
           }
+        case "custom_config":
+          {
+            // Injected by embedding host (e.g. RDMainActivity) at startup:
+            // apply server config / id / password, enable udp-punch + p2p,
+            // then start the controlled service. Fire-and-forget (async).
+            applyCustomConfigAndStart(arguments);
+            break;
+          }
       }
     } catch (e) {
       debugPrintStack(label: "MethodCallHandler err:$e");
     }
     return "";
   });
+}
+
+/// Apply the custom configuration passed in from the native embedding host
+/// (see RDMainActivity), then start the controlled (server) service.
+///
+/// All fields are optional. When a self-hosted server is provided, its
+/// rendezvous/relay/key are written via [setServerConfig]. UDP hole punching
+/// and P2P direct connection are enabled by default.
+Future<void> applyCustomConfigAndStart(dynamic arguments) async {
+  String getArg(String k) {
+    try {
+      final v = arguments[k];
+      return v == null ? '' : v.toString().trim();
+    } catch (e) {
+      return '';
+    }
+  }
+
+  try {
+    final idServer = getArg('idServer');
+    final relayServer = getArg('relayServer');
+    final key = getArg('key');
+    final id = getArg('id');
+    final password = getArg('password');
+
+    // Self-hosted server config (id/rendezvous, relay, key).
+    if (idServer.isNotEmpty || relayServer.isNotEmpty || key.isNotEmpty) {
+      await setServerConfig(
+        null,
+        null,
+        ServerConfig(idServer: idServer, relayServer: relayServer, key: key),
+      );
+    }
+
+    // Defaults: UDP hole punching (local option) + P2P direct server.
+    await mainSetLocalBoolOption(kOptionEnableUdpPunch, true);
+    await bind.mainSetOption(key: kOptionDirectServer, value: 'Y');
+
+    // Optional fixed device id.
+    if (id.isNotEmpty) {
+      bind.mainChangeId(newId: id);
+      var status = await bind.mainGetAsyncStatus();
+      var waited = 0;
+      while (status == " " && waited < 100) {
+        await Future.delayed(const Duration(milliseconds: 100));
+        status = await bind.mainGetAsyncStatus();
+        waited++;
+      }
+    }
+
+    // Optional permanent password.
+    if (password.isNotEmpty) {
+      await bind.mainSetPermanentPasswordWithResult(password: password);
+    }
+
+    // Start the controlled service (registers to rendezvous, waits for peers).
+    if (!gFFI.serverModel.isStart) {
+      await gFFI.serverModel.startService();
+    }
+  } catch (e) {
+    debugPrintStack(label: "applyCustomConfigAndStart err:$e");
+  }
 }
 
 void showScamWarning(BuildContext context, ServerModel serverModel) {

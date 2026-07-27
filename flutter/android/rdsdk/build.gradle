@@ -1,0 +1,120 @@
+import com.google.protobuf.gradle.*
+import groovy.json.JsonSlurper
+
+plugins {
+    id "com.google.protobuf" version "0.9.4"
+    id "com.android.library"
+    id "kotlin-android"
+}
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withReader('UTF-8') { reader ->
+        localProperties.load(reader)
+    }
+}
+
+// The flutter AAR (engine + dart + plugins) is produced by
+// `flutter build aar` into flutter/build/host/outputs/repo.
+// Its Maven coordinate is derived from pubspec `module.androidPackage`.
+def flutterAarGroup = "com.carriez.rdflutter"
+def flutterAarVersion = "1.0"
+def flutterRepo = new File(rootProject.projectDir, "../build/host/outputs/repo")
+
+// Add rustls-platform-verifier Android support (same logic as :app).
+String findRustlsPlatformVerifierMavenDir() {
+    def dependencyText = providers.exec {
+        it.workingDir = new File("../..")
+        commandLine("cargo", "metadata", "--format-version", "1")
+    }.standardOutput.asText.get()
+
+    def dependencyJson = new JsonSlurper().parseText(dependencyText)
+    def pkg = dependencyJson.packages.find { it.name == "rustls-platform-verifier-android" }
+
+    if (pkg == null) {
+        throw new GradleException("rustls-platform-verifier-android package not found in cargo metadata!")
+    }
+
+    def manifestPath = file(pkg.manifest_path)
+    def mavenDir = new File(manifestPath.parentFile, "maven")
+
+    if (!mavenDir.exists()) {
+        throw new GradleException("Maven directory not found at: ${mavenDir.path}")
+    }
+
+    println("✓ Found rustls-platform-verifier maven repo at: ${mavenDir.path}")
+    return mavenDir.path
+}
+
+repositories {
+    maven { url = flutterRepo.toURI().toString() }
+    maven { url = "https://storage.googleapis.com/download.flutter.io" }
+    maven {
+        url = findRustlsPlatformVerifierMavenDir()
+        metadataSources.artifact()
+    }
+}
+
+protobuf {
+    protoc {
+        artifact = 'com.google.protobuf:protoc:3.20.1'
+    }
+
+    generateProtoTasks {
+        all().configureEach { task ->
+            task.builtins {
+                java {
+                    option "lite"
+                }
+            }
+        }
+    }
+}
+
+android {
+    namespace "com.carriez.flutter_hbb"
+    compileSdkVersion 34
+
+    sourceSets {
+        // rdsdk's own public API (RDMainRunner/RDMainActivity).
+        main.java.srcDirs += 'src/main/kotlin'
+        // Share the controlled-end native code / resources / native libs with
+        // the :app module instead of duplicating them.
+        main.java.srcDirs += '../app/src/main/kotlin'
+        main.res.srcDirs += '../app/src/main/res'
+        main.jniLibs.srcDirs += '../app/src/main/jniLibs'
+
+        main.proto.srcDirs += '../../../libs/hbb_common/protos'
+        main.proto.includes += "message.proto"
+    }
+
+    compileOptions {
+        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_1_8
+    }
+
+    defaultConfig {
+        minSdkVersion 22
+        targetSdkVersion 33
+        consumerProguardFiles 'consumer-rules.pro'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+}
+
+dependencies {
+    // Flutter engine + dart + plugins (transitively pulls flutter_embedding
+    // and every plugin AAR via the generated POM).
+    releaseImplementation "${flutterAarGroup}:flutter_release:${flutterAarVersion}"
+
+    implementation 'com.google.protobuf:protobuf-javalite:3.20.1'
+    implementation "androidx.media:media:1.6.0"
+    implementation 'com.github.getActivity:XXPermissions:18.5'
+    implementation 'com.caverock:androidsvg-aar:1.4'
+    implementation "rustls:rustls-platform-verifier:0.1.1"
+}
