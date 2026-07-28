@@ -51,6 +51,26 @@
             android:theme="@style/LaunchTheme"
             android:windowSoftInputMode="adjustResize" />
 
+        <!-- Controlled-end only: "Share screen" (ServerPage). -->
+        <activity
+            android:name=".RDServerActivity"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode|navigation"
+            android:exported="false"
+            android:hardwareAccelerated="true"
+            android:launchMode="singleTop"
+            android:theme="@style/LaunchTheme"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- Control-end only: "Connection" (ConnectionPage). -->
+        <activity
+            android:name=".RDConnectActivity"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode|navigation"
+            android:exported="false"
+            android:hardwareAccelerated="true"
+            android:launchMode="singleTop"
+            android:theme="@style/LaunchTheme"
+            android:windowSoftInputMode="adjustResize" />
+
         <activity
             android:name=".PermissionRequestTransparentActivity"
             android:excludeFromRecents="true"

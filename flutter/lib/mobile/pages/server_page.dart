@@ -1025,6 +1025,72 @@ Future<void> applyCustomConfigAndStart(dynamic arguments) async {
   }
 }
 
+/// Channel handler for the embedded control-end (connect) screen.
+///
+/// Unlike [androidChannelInit] (used by the controlled/share-screen), this only
+/// needs to receive the runtime server config and surface msgboxes; it must NOT
+/// start the controlled service.
+void androidConnectChannelInit() {
+  gFFI.setMethodCallHandler((method, arguments) {
+    debugPrint("flutter got android msg,$method,$arguments");
+    try {
+      switch (method) {
+        case "custom_config":
+          {
+            applyCustomServerConfigOnly(arguments);
+            break;
+          }
+        case "msgbox":
+          {
+            var type = arguments["type"] as String;
+            var title = arguments["title"] as String;
+            var text = arguments["text"] as String;
+            var link = (arguments["link"] ?? '') as String;
+            msgBox(gFFI.sessionId, type, title, text, link, gFFI.dialogManager);
+            break;
+          }
+      }
+    } catch (e) {
+      debugPrintStack(label: "ConnectMethodCallHandler err:$e");
+    }
+    return "";
+  });
+}
+
+/// Apply the runtime server config injected by the embedding host for the
+/// control-end (connect) screen. Sets the self-hosted rendezvous/relay/key
+/// (when provided) and the default UDP-punch + P2P direct options, but does
+/// NOT start the controlled service and does NOT touch id/password.
+Future<void> applyCustomServerConfigOnly(dynamic arguments) async {
+  String getArg(String k) {
+    try {
+      final v = arguments[k];
+      return v == null ? '' : v.toString().trim();
+    } catch (e) {
+      return '';
+    }
+  }
+
+  try {
+    final idServer = getArg('idServer');
+    final relayServer = getArg('relayServer');
+    final key = getArg('key');
+
+    if (idServer.isNotEmpty || relayServer.isNotEmpty || key.isNotEmpty) {
+      await setServerConfig(
+        null,
+        null,
+        ServerConfig(idServer: idServer, relayServer: relayServer, key: key),
+      );
+    }
+
+    await mainSetLocalBoolOption(kOptionEnableUdpPunch, true);
+    await bind.mainSetOption(key: kOptionDirectServer, value: 'Y');
+  } catch (e) {
+    debugPrintStack(label: "applyCustomServerConfigOnly err:$e");
+  }
+}
+
 void showScamWarning(BuildContext context, ServerModel serverModel) {
   showDialog(
     context: context,

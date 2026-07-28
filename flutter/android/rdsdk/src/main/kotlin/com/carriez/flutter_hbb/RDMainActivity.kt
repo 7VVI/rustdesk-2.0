@@ -43,12 +43,34 @@ import io.flutter.plugin.common.MethodChannel
 import kotlin.concurrent.thread
 
 
-class RDMainActivity : FlutterActivity() {
+open class RDMainActivity : FlutterActivity() {
     companion object {
         var flutterMethodChannel: MethodChannel? = null
         private var _rdClipboardManager: RdClipboardManager? = null
         val rdClipboardManager: RdClipboardManager?
             get() = _rdClipboardManager
+
+        /**
+         * Put the runtime server-config extras onto [intent]. Shared by the
+         * per-screen subclasses ([RDServerActivity] / [RDConnectActivity]) so
+         * the extras keys stay in one place.
+         */
+        internal fun fillExtras(
+            intent: Intent,
+            idServer: String = "",
+            relayServer: String = "",
+            key: String = "",
+            id: String = "",
+            password: String = ""
+        ): Intent {
+            return intent.apply {
+                putExtra(RDMainRunner.KEY_ID_SERVER, idServer)
+                putExtra(RDMainRunner.KEY_RELAY_SERVER, relayServer)
+                putExtra(RDMainRunner.KEY_SERVER_KEY, key)
+                putExtra(RDMainRunner.KEY_ID, id)
+                putExtra(RDMainRunner.KEY_PASSWORD, password)
+            }
+        }
 
         internal fun getIntent(
             context: Context,
@@ -58,13 +80,10 @@ class RDMainActivity : FlutterActivity() {
             id: String = "",
             password: String = ""
         ): Intent {
-            return Intent(context, RDMainActivity::class.java).apply {
-                putExtra(RDMainRunner.KEY_ID_SERVER, idServer)
-                putExtra(RDMainRunner.KEY_RELAY_SERVER, relayServer)
-                putExtra(RDMainRunner.KEY_SERVER_KEY, key)
-                putExtra(RDMainRunner.KEY_ID, id)
-                putExtra(RDMainRunner.KEY_PASSWORD, password)
-            }
+            return fillExtras(
+                Intent(context, RDMainActivity::class.java),
+                idServer, relayServer, key, id, password
+            )
         }
 
         internal fun start(context: Context, intent: Intent) {

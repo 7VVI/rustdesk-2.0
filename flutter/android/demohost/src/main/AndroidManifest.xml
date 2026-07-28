@@ -3,17 +3,25 @@
 
     <application
         android:allowBackup="true"
-        android:label="RD Demo Host"
+        android:label="RD Demo"
         android:theme="@style/Theme.AppCompat.Light">
 
         <activity
-            android:name=".DemoActivity"
+            android:name=".MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".ServerSettingsActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".RemoteControlActivity"
+            android:exported="false" />
 
     </application>
 

@@ -5,21 +5,24 @@ import android.content.Intent
 import androidx.annotation.Keep
 
 /**
- * Public entry point for embedding the RustDesk controlled-end (被控端) into a
- * host application.
+ * Public entry point for embedding individual RustDesk screens into a host
+ * application. Instead of launching the whole tabbed client, the host picks
+ * exactly the screen it needs:
  *
- * Typical usage from a host app:
  * ```kotlin
- * // Use the official (built-in) rendezvous server.
- * RDMainRunner.start(context, "", "")
+ * // Controlled-end (被控端): only the "Share screen" (ServerPage).
+ * RDMainRunner.startServerScreen(context, /*id*/"", /*password*/"")                 // official server
+ * RDMainRunner.startServerScreen(context, idServer, relayServer, key, id, password) // self-hosted
  *
- * // Use a self-hosted server, passing config at runtime.
- * RDMainRunner.start(context, idServer, relayServer, key, "", "")
+ * // Control-end (控制端): only the "Connection" (ConnectionPage).
+ * RDMainRunner.startConnectScreen(context)                             // official server
+ * RDMainRunner.startConnectScreen(context, idServer, relayServer, key) // self-hosted
  * ```
  *
- * All parameters are optional (empty string = not set). When a self-hosted
- * server is provided it is injected at startup; UDP hole punching and P2P
- * direct connection are enabled by default (see the Dart side `custom_config`).
+ * All server parameters are optional (empty string = not set). When a
+ * self-hosted server is provided it is injected at startup; UDP hole punching
+ * and P2P direct connection are enabled by default (see the Dart side
+ * `custom_config`).
  *
  * There is intentionally no registration/authorization layer.
  */
@@ -41,9 +44,74 @@ object RDMainRunner {
     @Keep
     const val KEY_PASSWORD = "password" // permanent password (optional)
 
+    // ---------------------------------------------------------------------
+    // Controlled-end (被控端): "Share screen" (ServerPage)
+    // ---------------------------------------------------------------------
+
     /**
-     * Build the launch [Intent] without starting it. Useful when the host wants
-     * to add extra flags before launching.
+     * Start the controlled-end "Share screen" using the official built-in
+     * server. [id] / [password] may be empty.
+     */
+    @JvmStatic
+    @JvmOverloads
+    @Keep
+    fun startServerScreen(context: Context, id: String = "", password: String = "") {
+        RDServerActivity.start(context, "", "", "", id, password)
+    }
+
+    /**
+     * Start the controlled-end "Share screen" using a self-hosted server.
+     */
+    @JvmStatic
+    @JvmOverloads
+    @Keep
+    fun startServerScreen(
+        context: Context,
+        idServer: String,
+        relayServer: String,
+        key: String,
+        id: String = "",
+        password: String = ""
+    ) {
+        RDServerActivity.start(context, idServer, relayServer, key, id, password)
+    }
+
+    // ---------------------------------------------------------------------
+    // Control-end (控制端): "Connection" (ConnectionPage)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Start the control-end "Connection" screen using the official built-in
+     * server. The user enters a peer id and connects out; the remote session is
+     * pushed within the same Flutter Navigator.
+     */
+    @JvmStatic
+    @Keep
+    fun startConnectScreen(context: Context) {
+        RDConnectActivity.start(context, "", "", "")
+    }
+
+    /**
+     * Start the control-end "Connection" screen using a self-hosted server.
+     */
+    @JvmStatic
+    @Keep
+    fun startConnectScreen(
+        context: Context,
+        idServer: String,
+        relayServer: String,
+        key: String
+    ) {
+        RDConnectActivity.start(context, idServer, relayServer, key)
+    }
+
+    // ---------------------------------------------------------------------
+    // Intent builder (controlled-end) + deprecated compatibility aliases
+    // ---------------------------------------------------------------------
+
+    /**
+     * Build the controlled-end launch [Intent] without starting it. Useful when
+     * the host wants to add extra flags before launching.
      */
     @JvmStatic
     @JvmOverloads
@@ -56,26 +124,35 @@ object RDMainRunner {
         id: String = "",
         password: String = ""
     ): Intent {
-        return RDMainActivity.getIntent(context, idServer, relayServer, key, id, password)
+        return RDServerActivity.getIntent(context, idServer, relayServer, key, id, password)
     }
 
     /**
-     * Start the controlled-end using the official built-in server.
-     * [id] / [password] may be empty.
+     * @deprecated Use [startServerScreen] instead. Kept as a compatibility
+     * alias for the controlled-end "Share screen".
      */
     @JvmStatic
     @JvmOverloads
     @Keep
+    @Deprecated(
+        "Use startServerScreen(...)",
+        ReplaceWith("startServerScreen(context, id, password)")
+    )
     fun start(context: Context, id: String = "", password: String = "") {
-        RDMainActivity.start(context, "", "", "", id, password)
+        startServerScreen(context, id, password)
     }
 
     /**
-     * Start the controlled-end using a self-hosted server.
+     * @deprecated Use [startServerScreen] instead. Kept as a compatibility
+     * alias for the controlled-end "Share screen" with a self-hosted server.
      */
     @JvmStatic
     @JvmOverloads
     @Keep
+    @Deprecated(
+        "Use startServerScreen(...)",
+        ReplaceWith("startServerScreen(context, idServer, relayServer, key, id, password)")
+    )
     fun start(
         context: Context,
         idServer: String,
@@ -84,14 +161,15 @@ object RDMainRunner {
         id: String = "",
         password: String = ""
     ) {
-        RDMainActivity.start(context, idServer, relayServer, key, id, password)
+        startServerScreen(context, idServer, relayServer, key, id, password)
     }
 
     /**
-     * Start with a pre-built [Intent] (see [getIntent]).
+     * @deprecated Start with a pre-built [Intent] (see [getIntent]).
      */
     @JvmStatic
     @Keep
+    @Deprecated("Use startServerScreen(...) / startConnectScreen(...)")
     fun start(context: Context, intent: Intent) {
         RDMainActivity.start(context, intent)
     }

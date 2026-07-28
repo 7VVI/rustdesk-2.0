@@ -1,36 +1,26 @@
-import groovy.json.JsonSlurper
-
 plugins {
     id "com.android.application"
     id "kotlin-android"
 }
 
-// Same maven repos a real host app must declare to pull the Flutter module
-// (flutter_release + plugin AARs) that rdsdk depends on transitively.
-def flutterRepo = new File(rootProject.projectDir, "../build/host/outputs/repo")
-
-String findRustlsPlatformVerifierMavenDir() {
-    def dependencyText = providers.exec {
-        it.workingDir = new File("../..")
-        commandLine("cargo", "metadata", "--format-version", "1")
-    }.standardOutput.asText.get()
-    def dependencyJson = new JsonSlurper().parseText(dependencyText)
-    def pkg = dependencyJson.packages.find { it.name == "rustls-platform-verifier-android" }
-    if (pkg == null) {
-        throw new GradleException("rustls-platform-verifier-android package not found in cargo metadata!")
-    }
-    def manifestPath = file(pkg.manifest_path)
-    def mavenDir = new File(manifestPath.parentFile, "maven")
-    return mavenDir.path
-}
+// Consume the standalone RDSDK distribution (packaged AAR), exactly like an
+// external host app would -- NOT the :rdsdk source module.
+def rdsdkDist = new File("/opt/rustdesk/rdsdk-dist")
+def rdsdkRepo = new File(rdsdkDist, "m2repository")
+def rdsdkLibs = new File(rdsdkDist, "libs")
 
 repositories {
-    maven { url = flutterRepo.toURI().toString() }
-    maven { url = "https://storage.googleapis.com/download.flutter.io" }
-    maven {
-        url = findRustlsPlatformVerifierMavenDir()
+    google()
+    mavenCentral()
+    maven { url = "https://jitpack.io" }                                  // XXPermissions
+    maven { url = "https://storage.googleapis.com/download.flutter.io" }   // Flutter engine .so
+    maven { url = rdsdkRepo.toURI().toString() }                          // flutter_release + plugins
+    maven {                                                                // rustls (artifact-only metadata)
+        url = rdsdkRepo.toURI().toString()
         metadataSources.artifact()
+        content { includeGroup "rustls" }
     }
+    flatDir { dirs rdsdkLibs.path }                                       // rdsdk-release.aar
 }
 
 android {
@@ -61,8 +51,15 @@ android {
 }
 
 dependencies {
-    // Depend on the controlled-end SDK. Its release variant transitively pulls
-    // the Flutter module (com.carriez.rdflutter:flutter_release) + plugins.
-    implementation project(':rdsdk')
+    // Consume the packaged SDK aar (bare aar, no POM) and declare its runtime
+    // dependencies explicitly, mirroring rdsdk-dist/README.md.
+    implementation(name: 'rdsdk-release', ext: 'aar')
+    implementation "com.carriez.rdflutter:flutter_release:1.0"
+    implementation "com.google.protobuf:protobuf-javalite:3.20.1"
+    implementation "androidx.media:media:1.6.0"
+    implementation "com.github.getActivity:XXPermissions:18.5"
+    implementation "com.caverock:androidsvg-aar:1.4"
+    implementation "rustls:rustls-platform-verifier:0.1.1"
+
     implementation "androidx.appcompat:appcompat:1.6.1"
 }

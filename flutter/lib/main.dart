@@ -27,6 +27,7 @@ import 'common.dart';
 import 'consts.dart';
 import 'mobile/pages/home_page.dart';
 import 'mobile/pages/server_page.dart';
+import 'mobile/rdsdk_screens.dart';
 import 'mobile/widgets/deploy_dialog.dart';
 import 'models/platform_model.dart';
 
@@ -118,6 +119,27 @@ Future<void> main(List<String> args) async {
     }
     runMainApp(true);
   }
+}
+
+/// rdsdk single-screen Dart entry-points.
+///
+/// These MUST live in the root library (`lib/main.dart`) and be annotated with
+/// `@pragma('vm:entry-point')` so that:
+///   1. AOT compilation (release AAR) retains them, and
+///   2. Flutter's `FlutterActivity.getDartEntrypointFunctionName()` can resolve
+///      them by name (Flutter looks up the entry-point in the root library).
+/// They are selected natively by `RDServerActivity` / `RDConnectActivity`.
+
+/// Controlled-end (被控端): only the "Share screen" (ServerPage).
+@pragma('vm:entry-point')
+void rdServerScreen() {
+  rdScreenMain(isServer: true);
+}
+
+/// Control-end (控制端): only the "Connection" (ConnectionPage).
+@pragma('vm:entry-point')
+void rdConnectScreen() {
+  rdScreenMain(isServer: false);
 }
 
 Future<void> initEnv(String appType) async {
