@@ -124,6 +124,14 @@ open class RDMainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
             channelTag
         )
+        // The shared controlled-end natives (MainService / InputService /
+        // FloatingWindowService / common.kt) push their state events
+        // (on_state_changed, msgbox, stop_service ...) to
+        // MainActivity.flutterMethodChannel. In the rdsdk embedding MainActivity is
+        // never launched, so that field stays null and every live event is lost
+        // (e.g. the "Stop service" button never appears/disappears). Mirror our
+        // channel there so those components reach the running Flutter engine.
+        MainActivity.flutterMethodChannel = flutterMethodChannel
         initFlutterChannel(flutterMethodChannel!!)
         thread {
             try {
@@ -182,6 +190,11 @@ open class RDMainActivity : FlutterActivity() {
         Log.e(logTag, "onDestroy")
         mainService?.let {
             unbindService(serviceConnection)
+        }
+        // Drop the mirrored channel (see configureFlutterEngine) so the shared
+        // natives don't invoke methods on a dead engine.
+        if (MainActivity.flutterMethodChannel === flutterMethodChannel) {
+            MainActivity.flutterMethodChannel = null
         }
         super.onDestroy()
     }
@@ -469,10 +482,10 @@ open class RDMainActivity : FlutterActivity() {
 
     override fun onStop() {
         super.onStop()
-        val disableFloatingWindow = FFI.getLocalOption("disable-floating-window") == "Y"
-        if (!disableFloatingWindow && MainService.isReady) {
-            startService(Intent(this, FloatingWindowService::class.java))
-        }
+        // rdsdk embedding intentionally does NOT show the floating window when
+        // the activity goes to background; keep the controlled service running
+        // but without the overlay. (Original behavior started FloatingWindowService.)
+        stopService(Intent(this, FloatingWindowService::class.java))
     }
 
     override fun onStart() {

@@ -1513,13 +1513,27 @@ pub async fn change_id_shared_(id: String, old_id: String) -> &'static str {
     }
     join_all(futs).await;
     let err = *err.lock().unwrap();
-    if err.is_empty() {
+
+    // On mobile embeddings (rdsdk) the host app supplies a fixed device id
+    // (e.g. a device serial / 机号) and it must take effect deterministically.
+    // If the rendezvous server is merely UNREACHABLE we still apply the id
+    // locally; registration happens once connectivity is back. An id that the
+    // server reports as already taken ("Not available") is never forced.
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let apply_locally = err.is_empty() || err == "Failed to connect to rendezvous server";
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let apply_locally = err.is_empty();
+
+    if apply_locally {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         crate::ipc::set_config_async("id", id.to_owned()).await.ok();
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
             Config::set_key_confirmed(false);
             Config::set_id(&id);
+            if !err.is_empty() {
+                log::info!("applied fixed id '{id}' locally despite: {err}");
+            }
         }
     }
     err

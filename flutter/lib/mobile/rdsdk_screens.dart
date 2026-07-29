@@ -36,6 +36,10 @@ Future<void> rdScreenMain({required bool isServer}) async {
   gFFI.userModel.refreshCurrentUser();
   final PageShape page;
   if (isServer) {
+    // rdsdk embedding never shows the consumer "you may be scammed" warning.
+    // Set it before the first frame so ServerPage can't display it even if the
+    // user taps before `custom_config` arrives.
+    await bind.mainSetLocalOption(key: "show-scam-warning", value: "N");
     page = ServerPage();
   } else {
     page = ConnectionPage(appBarActions: const []);

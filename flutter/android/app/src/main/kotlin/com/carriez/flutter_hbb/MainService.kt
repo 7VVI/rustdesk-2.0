@@ -339,8 +339,11 @@ class MainService : Service() {
             intent.getParcelableExtra<Intent>(EXT_MEDIA_PROJECTION_RES_INTENT)?.let {
                 mediaProjection =
                     mediaProjectionManager.getMediaProjection(Activity.RESULT_OK, it)
-                checkMediaPermission()
+                // NOTE: set _isReady BEFORE notifying, otherwise checkMediaPermission()
+                // pushes the stale value (media=false) and the Flutter side never
+                // learns the capture service became ready (stop button missing).
                 _isReady = true
+                checkMediaPermission()
             } ?: let {
                 Log.d(logTag, "getParcelableExtra intent null, invoke requestMediaProjection")
                 requestMediaProjection()

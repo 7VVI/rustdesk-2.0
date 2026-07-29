@@ -999,6 +999,11 @@ Future<void> applyCustomConfigAndStart(dynamic arguments) async {
     await mainSetLocalBoolOption(kOptionEnableUdpPunch, true);
     await bind.mainSetOption(key: kOptionDirectServer, value: 'Y');
 
+    // rdsdk embedding: never show the "you may be scammed" warning dialog.
+    // The host app decides when/why the controlled end goes online, so this
+    // consumer-oriented warning is not applicable here.
+    await bind.mainSetLocalOption(key: "show-scam-warning", value: "N");
+
     // Fixed permanent password. Setting the password alone is NOT enough:
     // the default verification method is "both", so the controlled end keeps
     // showing/expecting a random ONE-TIME password and the fixed password looks
