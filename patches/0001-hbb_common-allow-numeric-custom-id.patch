@@ -1,0 +1,30 @@
+From 722fa492e0e4a5e74c2b748a3d8a24c63b389a09 Mon Sep 17 00:00:00 2001
+From: 7VVI <7VVI@users.noreply.github.com>
+Date: Wed, 29 Jul 2026 03:16:18 +0000
+Subject: [PATCH] feat: allow numeric custom id (relax is_valid_custom_id to
+ permit leading digit)
+
+---
+ src/lib.rs | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/src/lib.rs b/src/lib.rs
+index 2b35642..094b259 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -255,7 +255,11 @@ where
+ }
+ 
+ pub fn is_valid_custom_id(id: &str) -> bool {
+-    regex::Regex::new(r"^[a-zA-Z][\w-]{5,15}$")
++    // Allow ids to start with a digit as well, so purely-numeric device ids
++    // (e.g. a device serial / 机号) can be used as a custom id. RustDesk's own
++    // auto-generated ids are numeric too; the length (6-16) and allowed chars
++    // ([A-Za-z0-9_-]) are kept unchanged.
++    regex::Regex::new(r"^[a-zA-Z0-9][\w-]{5,15}$")
+         .unwrap()
+         .is_match(id)
+ }
+-- 
+2.43.0
+
