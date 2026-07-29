@@ -999,9 +999,29 @@ Future<void> applyCustomConfigAndStart(dynamic arguments) async {
     await mainSetLocalBoolOption(kOptionEnableUdpPunch, true);
     await bind.mainSetOption(key: kOptionDirectServer, value: 'Y');
 
-    // Optional fixed device id.
+    // Fixed permanent password. Setting the password alone is NOT enough:
+    // the default verification method is "both", so the controlled end keeps
+    // showing/expecting a random ONE-TIME password and the fixed password looks
+    // like it "didn't take effect". Force permanent-password-only so the given
+    // password is the sole connection password.
+    if (password.isNotEmpty) {
+      await bind.mainSetPermanentPasswordWithResult(password: password);
+      await bind.mainSetOption(
+          key: kOptionVerificationMethod, value: kUsePermanentPassword);
+    }
+
+    // Start the controlled service first so the rendezvous connection is up.
+    if (!gFFI.serverModel.isStart) {
+      await gFFI.serverModel.startService();
+    }
+
+    // Fixed device id. It must be registered against the rendezvous server, so
+    // change it AFTER the service is online (before start it races with the
+    // server-config reconnect and silently keeps the auto-generated id).
+    // NOTE: the RustDesk core requires the id to start with a letter and be
+    // 6-16 [A-Za-z0-9_] chars; a purely numeric id is rejected.
     if (id.isNotEmpty) {
-      bind.mainChangeId(newId: id);
+      await bind.mainChangeId(newId: id);
       var status = await bind.mainGetAsyncStatus();
       var waited = 0;
       while (status == " " && waited < 100) {
@@ -1009,17 +1029,13 @@ Future<void> applyCustomConfigAndStart(dynamic arguments) async {
         status = await bind.mainGetAsyncStatus();
         waited++;
       }
+      debugPrint("rdsdk change id -> '$id', result: '$status'");
     }
 
-    // Optional permanent password.
-    if (password.isNotEmpty) {
-      await bind.mainSetPermanentPasswordWithResult(password: password);
-    }
-
-    // Start the controlled service (registers to rendezvous, waits for peers).
-    if (!gFFI.serverModel.isStart) {
-      await gFFI.serverModel.startService();
-    }
+    // Refresh the ServerPage model so the displayed id/password reflect the
+    // changes above (avoids showing stale auto-generated values).
+    await gFFI.serverModel.fetchID();
+    await gFFI.serverModel.updatePasswordModel();
   } catch (e) {
     debugPrintStack(label: "applyCustomConfigAndStart err:$e");
   }

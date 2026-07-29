@@ -130,16 +130,17 @@ class MainActivity : AppCompatActivity() {
      * Bring the local device online as the RustDesk 被控端 and jump straight to
      * the original RustDesk share-screen UI ([RDMainRunner]).
      * Server config comes from [ServerSettingsActivity]; empty -> official server.
-     * [deviceId] is used as the fixed device id (机号).
+     * [deviceId] is used as the fixed device id (机号); password is fixed to 123456.
      */
     private fun startControlled(deviceId: String) {
         val idServer = Prefs.getIdServer(this)
         val relay = Prefs.getRelayServer(this)
         val key = Prefs.getServerKey(this)
+        val password = "123456"
         if (idServer.isNotEmpty()) {
-            RDMainRunner.startServerScreen(this, idServer, relay, key, deviceId, "")
+            RDMainRunner.startServerScreen(this, idServer, relay, key, deviceId, password)
         } else {
-            RDMainRunner.startServerScreen(this, deviceId, "")
+            RDMainRunner.startServerScreen(this, deviceId, password)
         }
     }
 
