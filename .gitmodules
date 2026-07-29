@@ -1,3 +1,4 @@
 [submodule "libs/hbb_common"]
 	path = libs/hbb_common
-	url = https://github.com/rustdesk/hbb_common
+	url = https://github.com/7VVI/7VVI-hbb_common.git
+	branch = feat/numeric-custom-id
