@@ -173,6 +173,69 @@ extras / map 的键：`idServer`、`relayServer`、`key`、`id`、`password`。
 控制端在同一个 Flutter Navigator 内 `connect()` → `push(RemotePage)`，
 不需要额外原生 Activity；会话链路由 Rust 核心 + session FFI 提供。
 
+### 4.5 自定义机号（设备 id）注册原理
+
+宿主传入的 `id`（机号）要真正**注册到交会服务器**、并让其它设备用这个机号连上你，
+涉及一条贯穿 原生 → Dart → Rust 核心 → 交会服务器 的链路。理解它才能明白为什么
+“传了 id 却还是注册成原来的随机 id”，以及现在是如何修好的。
+
+#### 4.5.1 机号是怎么一路传到 Rust 核心的
+```
+RDMainRunner.startServerScreen(ctx, …, id="100001", …)
+   │  Intent extra "id"
+   ▼
+RDMainActivity.onResume() ──invokeMethod("custom_config", {id:"100001", …})──▶ Dart
+   ▼
+server_page.dart: applyCustomConfigAndStart(cfg)
+   1) 写服务器配置(idServer/relay/key)
+   2) 写固定密码 + 校验方式
+   3) startService()            → 被控服务/交会 mediator 启动
+   4) mainChangeId("100001")     → 落 id + 触发重新注册   ★关键
+   5) fetchID()                 → 刷新界面回显
+   ▼
+Rust: main_change_id → change_id_shared_("100001")
+```
+
+#### 4.5.2 关键认知：机号注册走的是“普通注册”，不是 change_id 校验
+RustDesk 设备上线时，交会 mediator 每次(重)连都会用 `Config::get_id()` 里的当前 id 做
+`register_pk` 向服务器注册——**自动生成的数字 id 也是走这条路注册的**。也就是说：
+
+> **只要把机号写进 `Config` 的 id，再让 mediator 用新 id 重连一次，服务器就会以该机号注册。**
+
+`change_id` 里额外的那次 `register_pk`（带 old_id 的“改名”RPC）只是一个**可用性校验**，
+很多自建服务器并不支持、会回 `server_not_support`；它失败**不代表**机号不能用。
+
+#### 4.5.3 曾经“机号不生效”的三个根因与对应修复
+（均在主 crate `src/ui_interface.rs` 与 `src/rendezvous_mediator.rs`）
+
+1. **校验失败就不落 id**：自建服务器回 `server_not_support`（或暂时连不上）时，旧逻辑
+   直接放弃，不写 id → 仍是随机 id。
+   ✅ 修复：`change_id_shared_` 放宽应用条件——移动端**除“格式非法 / 已被他人占用
+   (Not available)”外都本地写入 id**（`Config::set_id`），随后走 4.5.2 的普通注册。
+
+2. **改了 id 但 mediator 还用旧 id 在线**：mediator 只在(重)连时读一次 `Config::get_id()`，
+   startService 已先用旧/随机 id 注册过了。
+   ✅ 修复：写入 id 后调用 `RendezvousMediator::restart()`，强制断开重连，用新机号重新 `register_pk`。
+
+3. **服务器回 UUID_MISMATCH 时核心自动换随机 id**：当某机号在服务器上已绑定到**另一把
+   设备密钥/uuid** 时，服务器回 `UUID_MISMATCH`，核心默认调用 `Config::update_id()`
+   生成一个 `1xxxxxxxxx` 的随机 id 顶替——这正是“注册的还是原来的随机 id”的直接来源。
+   ✅ 修复：新增全局标志 `KEEP_FIXED_ID`，固定机号模式下收到 UUID_MISMATCH **不再重生成**，
+   保住机号（真正的冲突需在服务器侧清掉旧绑定）。
+
+#### 4.5.4 uuid 是什么、为什么会 UUID_MISMATCH
+服务器用 `id → (uuid, 公钥)` 绑定设备。Android 上 `get_uuid()` 最终取 `key_pair`（设备公钥），
+**它随 App 全新安装重新生成**。因此：
+- **全新未注册过的机号** → 服务器无记录 → `register_pk` 直接成功，机号即刻上线（首次注册的正常路径）。
+- **同一机号曾用别的设备/别的安装(不同密钥)注册过** → `UUID_MISMATCH`。此时 `KEEP_FIXED_ID`
+  会保住机号不被换掉，但要真正以该机号上线，需在服务器端清除旧绑定（或换一个未用过的机号）。
+
+#### 4.5.5 使用建议
+- 给每台设备分配**唯一且未注册过**的机号，首次即可稳定以机号上线。
+- 机号需满足格式校验（6–16 位，支持数字开头）；不合法(`INVALID_FORMAT`)不会被应用。
+- 判断是否生效：界面 ID 回显 = 机号，且控制端能用该机号连上；`logcat` 可见
+  `rdsdk change id -> '<机号>'` 与（冲突时）`UUID_MISMATCH ... keeping fixed id`。
+
 ---
 
 ## 5. 如何编译 AAR
@@ -323,7 +386,7 @@ RDMainRunner.startConnectScreen(context, idServer, relayServer, key)            
 | `idServer` | ID/交会服务器 `host:port` | 空=官方服务器 |
 | `relayServer` | 中继服务器 `host:port` | 可空 |
 | `key` | 服务器公钥 | 可空 |
-| `id` | 固定设备号（被控端） | 空=随机生成 |
+| `id` | 固定设备号（被控端） | 空=随机生成；传入则注册为该机号，原理见 4.5 |
 | `password` | 固定密码（被控端） | 空=随机/不设 |
 
 自建服务器示例：
@@ -358,6 +421,8 @@ RDMainRunner.startServerScreen(
 | 构建日志一堆 `incompatible version of Kotlin ... metadata` | lint 告警 | 无害，只要 `BUILD SUCCESSFUL` |
 | 找不到 APK/AAR 产物 | 构建目录被 `rootProject.buildDir='../build'` 重定向 | 去 `flutter/build/<module>/outputs/...` 找 |
 | 控制端要不要录屏权限 | 不需要 | 控制端走 `androidConnectChannelInit`，不启被控、不申请录屏 |
+| 传了机号却注册成随机 id（`1xxxxxxxxx`） | 该机号已在服务器绑定到另一把密钥/uuid → UUID_MISMATCH | 见 4.5.3/4.5.4：换一个未注册过的机号，或在服务器侧清掉旧绑定 |
+| 机号未生效、仍显示旧 id | 未重编含修复的 `librustdesk.so`，或机号格式非法 | 重编三架构 Rust（见 4.5.3）；机号需 6–16 位 |
 
 ---
 
