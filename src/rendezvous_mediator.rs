@@ -52,6 +52,10 @@ static SHOULD_EXIT: AtomicBool = AtomicBool::new(false);
 static MANUAL_RESTARTED: AtomicBool = AtomicBool::new(false);
 static SENT_REGISTER_PK: AtomicBool = AtomicBool::new(false);
 pub(crate) static NEEDS_DEPLOY: AtomicBool = AtomicBool::new(false);
+// When the host app (rdsdk) provisions a fixed device id, we must NOT let the
+// UUID_MISMATCH handler silently regenerate a random id, otherwise the injected
+// 机号 is replaced and "the registered id is still the original random one".
+pub static KEEP_FIXED_ID: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "android")]
 static NOTIFIED_NEEDS_DEPLOY: AtomicBool = AtomicBool::new(false);
 // register_pk retry interval (ms) when device is awaiting deployment
@@ -778,6 +782,17 @@ impl RendezvousMediator {
     }
 
     async fn handle_uuid_mismatch(&mut self, socket: Sink<'_>) -> ResultType<()> {
+        // rdsdk fixed-id mode: keep the host-provisioned id instead of letting
+        // the core generate a random one. The device stays on its 机号; a genuine
+        // conflict must be resolved on the server side (clear the stale binding).
+        if KEEP_FIXED_ID.load(Ordering::SeqCst) {
+            log::info!(
+                "UUID_MISMATCH from {} ignored: keeping fixed id {}",
+                self.host,
+                Config::get_id()
+            );
+            return Ok(());
+        }
         {
             let mut solving = SOLVING_PK_MISMATCH.lock().await;
             if solving.is_empty() || *solving == self.host {

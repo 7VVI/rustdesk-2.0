@@ -1516,11 +1516,14 @@ pub async fn change_id_shared_(id: String, old_id: String) -> &'static str {
 
     // On mobile embeddings (rdsdk) the host app supplies a fixed device id
     // (e.g. a device serial / 机号) and it must take effect deterministically.
-    // If the rendezvous server is merely UNREACHABLE we still apply the id
-    // locally; registration happens once connectivity is back. An id that the
-    // server reports as already taken ("Not available") is never forced.
+    // change_id's register_pk verification is only a "rename" RPC: many self-
+    // hosted servers answer NOT_SUPPORT and some are just unreachable. None of
+    // those mean the id is unusable — the ordinary mediator registration (the
+    // same path auto-generated numeric ids use) will register whatever id is in
+    // the config. So apply the id locally for every result EXCEPT a genuinely
+    // invalid format or an id already taken by another device.
     #[cfg(any(target_os = "android", target_os = "ios"))]
-    let apply_locally = err.is_empty() || err == "Failed to connect to rendezvous server";
+    let apply_locally = err != INVALID_FORMAT && err != "Not available";
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let apply_locally = err.is_empty();
 
@@ -1534,6 +1537,14 @@ pub async fn change_id_shared_(id: String, old_id: String) -> &'static str {
             if !err.is_empty() {
                 log::info!("applied fixed id '{id}' locally despite: {err}");
             }
+            // The rendezvous mediator may already be online, registered under the
+            // OLD id. It reads Config::get_id() only when (re)connecting, so force
+            // a restart to re-register with the new id; otherwise peers still see
+            // the original id.
+            // Also enter fixed-id mode so a UUID_MISMATCH from the server does not
+            // silently regenerate a random id and discard the provisioned 机号.
+            crate::rendezvous_mediator::KEEP_FIXED_ID.store(true, std::sync::atomic::Ordering::SeqCst);
+            crate::rendezvous_mediator::RendezvousMediator::restart();
         }
     }
     err
