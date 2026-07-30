@@ -77,7 +77,12 @@ class _RdApp extends StatelessWidget {
             appBar: AppBar(
               centerTitle: true,
               title: Text(page.title),
-              actions: page.appBarActions,
+              // rdsdk embedding hides the ServerPage overflow (⋮) menu
+              // (Change ID / password / approve-mode settings): the host app
+              // provisions id & password via custom_config, so these controls
+              // are not exposed here. Kept out of the shared ServerPage so the
+              // full tabbed client is unaffected.
+              actions: const <Widget>[],
             ),
             body: page,
           ),
