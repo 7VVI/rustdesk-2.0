@@ -61,26 +61,54 @@ object RdInAppInputService : RdInputHandler {
     // Last injected position (scaled), used for touch pan which reports deltas.
     private var lastX = 0f
     private var lastY = 0f
+    // Tracked mouse position (scaled). The PC control-end sends mouse-move
+    // events (mask=0) to report cursor position; click events (DOWN/UP) carry
+    // x=0,y=0 and rely on the previously tracked position — exactly like the
+    // original InputService which keeps mouseX/mouseY across events.
+    private var mouseX = 0f
+    private var mouseY = 0f
+    // Whether a touch gesture is in progress (between DOWN and UP).
+    private var pointerDown = false
 
     /**
-     * Mouse input. mask selects the action; x/y are absolute screen coords
-     * (pre-scale, same convention as InputService.onMouseInput).
+     * Mouse input. Mirrors InputService.onMouseInput's position-tracking:
+     * plain moves (mask=0) and LEFT_MOVE update [mouseX]/[mouseY]; click
+     * events (LEFT_DOWN/LEFT_UP) use the tracked position because the
+     * control-end sends them with x=0,y=0.
      */
     override fun onMouseInput(mask: Int, x: Int, y: Int) {
-        val action = when (mask) {
-            LEFT_DOWN -> MotionEvent.ACTION_DOWN
-            LEFT_UP, RIGHT_UP -> MotionEvent.ACTION_UP
-            LEFT_MOVE -> MotionEvent.ACTION_MOVE
-            // wheel / back / unsupported → drop silently
+        // Update tracked position from any event that carries real coords.
+        // The control-end's down/up events send x=0,y=0, so only update when
+        // the incoming coords are non-zero (same guard as InputService which
+        // only updates on mask==0 / LEFT_MOVE).
+        if (x != 0 || y != 0) {
+            mouseX = max(0, x) * SCREEN_INFO.scale.toFloat()
+            mouseY = max(0, y) * SCREEN_INFO.scale.toFloat()
+        }
+        when (mask) {
+            0, LEFT_MOVE -> {
+                // Plain move or move-with-left-button. If a gesture is active
+                // (button held), dispatch ACTION_MOVE so drags work; otherwise
+                // just track position (no dispatch).
+                if (pointerDown && mask == LEFT_MOVE) {
+                    Log.d(TAG, "onMouseInput drag MOVE -> mx=$mouseX my=$mouseY")
+                    dispatchPointer(MotionEvent.ACTION_MOVE, mouseX, mouseY)
+                }
+            }
+            LEFT_DOWN -> {
+                pointerDown = true
+                Log.d(TAG, "onMouseInput DOWN -> mx=$mouseX my=$mouseY (raw x=$x y=$y)")
+                dispatchPointer(MotionEvent.ACTION_DOWN, mouseX, mouseY)
+            }
+            LEFT_UP, RIGHT_UP -> {
+                pointerDown = false
+                Log.d(TAG, "onMouseInput UP -> mx=$mouseX my=$mouseY (raw x=$x y=$y)")
+                dispatchPointer(MotionEvent.ACTION_UP, mouseX, mouseY)
+            }
             else -> {
                 Log.d(TAG, "onMouseInput: unsupported mask=$mask, dropping")
-                return
             }
         }
-        val sx = max(0, x) * SCREEN_INFO.scale.toFloat()
-        val sy = max(0, y) * SCREEN_INFO.scale.toFloat()
-        Log.d(TAG, "onMouseInput mask=$mask x=$x y=$y scale=${SCREEN_INFO.scale} -> sx=$sx sy=$sy action=$action activity=${activity != null}")
-        dispatchPointer(action, sx, sy)
     }
 
     /**
