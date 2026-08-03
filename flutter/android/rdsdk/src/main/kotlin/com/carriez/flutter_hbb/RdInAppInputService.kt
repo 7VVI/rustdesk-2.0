@@ -72,10 +72,14 @@ object RdInAppInputService : RdInputHandler {
             LEFT_UP, RIGHT_UP -> MotionEvent.ACTION_UP
             LEFT_MOVE -> MotionEvent.ACTION_MOVE
             // wheel / back / unsupported → drop silently
-            else -> return
+            else -> {
+                Log.d(TAG, "onMouseInput: unsupported mask=$mask, dropping")
+                return
+            }
         }
         val sx = max(0, x) * SCREEN_INFO.scale.toFloat()
         val sy = max(0, y) * SCREEN_INFO.scale.toFloat()
+        Log.d(TAG, "onMouseInput mask=$mask x=$x y=$y scale=${SCREEN_INFO.scale} -> sx=$sx sy=$sy action=$action activity=${activity != null}")
         dispatchPointer(action, sx, sy)
     }
 
@@ -116,7 +120,10 @@ object RdInAppInputService : RdInputHandler {
     }
 
     private fun dispatchPointer(action: Int, x: Float, y: Float) {
-        val act = activity ?: return
+        val act = activity ?: run {
+            Log.w(TAG, "dispatchPointer: activity is null, dropping action=$action")
+            return
+        }
         val now = SystemClock.uptimeMillis()
         if (action == MotionEvent.ACTION_DOWN) {
             downTime = now
@@ -132,9 +139,20 @@ object RdInAppInputService : RdInputHandler {
             0   // edgeFlags
         )
         me.source = InputDevice.SOURCE_TOUCHSCREEN
+        Log.d(TAG, "dispatchPointer action=$action x=$x y=$y decorView=${act.window?.decorView != null}")
         mainHandler.post {
             try {
-                act.window?.decorView?.dispatchTouchEvent(me)
+                // Prefer dispatching to the content view (FlutterView lives
+                // inside it); fall back to decorView. Dispatching to decorView
+                // should also work (it propagates to children) but the content
+                // view is a more direct target.
+                val dv = act.window?.decorView
+                if (dv != null) {
+                    val handled = dv.dispatchTouchEvent(me)
+                    Log.d(TAG, "dispatchTouchEvent(decorView) result=$handled")
+                } else {
+                    Log.e(TAG, "decorView is null")
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "dispatchTouchEvent failed: ${e.message}")
             } finally {

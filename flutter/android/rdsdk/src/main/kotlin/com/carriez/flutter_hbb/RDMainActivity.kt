@@ -148,7 +148,8 @@ open class RDMainActivity : FlutterActivity() {
         super.onResume()
         // In in-app input mode no Accessibility permission is needed, so input
         // is always considered ready.
-        val inputPer = if (RdInputDispatch.mode == 1) true else InputService.isOpen
+        val inputPer = if (MainService.inputMode == 1) true else InputService.isOpen
+        Log.d(logTag, "onResume: MainService.inputMode=${MainService.inputMode} inputPer=$inputPer")
         activity.runOnUiThread {
             flutterMethodChannel?.invokeMethod(
                 "on_state_changed",
@@ -191,14 +192,19 @@ open class RDMainActivity : FlutterActivity() {
         }
         // Input-injection mode: "inapp" (default, no Accessibility needed) or
         // "accessibility" (cross-app, requires the system a11y permission).
+        // NOTE: use MainService.inputMode (not a common.kt static) because
+        // common.kt is compiled into both :app and :rdsdk, yielding two
+        // independent copies of any static declared there. MainService is
+        // only in :app so there is exactly one runtime copy.
         val mode = intent?.getStringExtra(RDMainRunner.KEY_INPUT_MODE) ?: "inapp"
-        RdInputDispatch.mode = if (mode == "accessibility") 0 else 1
-        if (RdInputDispatch.mode == 1) {
+        MainService.inputMode = if (mode == "accessibility") 0 else 1
+        Log.d(logTag, "onCreate: inputMode='$mode' -> MainService.inputMode=${MainService.inputMode}")
+        if (MainService.inputMode == 1) {
             RdInAppInputService.activity = this
-            RdInputDispatch.inAppHandler = RdInAppInputService
+            MainService.inAppInputHandler = RdInAppInputService
         } else {
             RdInAppInputService.activity = null
-            RdInputDispatch.inAppHandler = null
+            MainService.inAppInputHandler = null
         }
     }
 
@@ -217,8 +223,8 @@ open class RDMainActivity : FlutterActivity() {
         if (RdInAppInputService.activity === this) {
             RdInAppInputService.activity = null
         }
-        if (RdInputDispatch.inAppHandler === RdInAppInputService) {
-            RdInputDispatch.inAppHandler = null
+        if (MainService.inAppInputHandler === RdInAppInputService) {
+            MainService.inAppInputHandler = null
         }
         super.onDestroy()
     }

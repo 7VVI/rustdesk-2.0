@@ -74,9 +74,13 @@ class MainService : Service() {
             Log.d(logTag,"Turn on Screen")
             wakeLock.acquire(5000)
         } else {
-            if (RdInputDispatch.mode == 1) {
+            if (inputMode == 1) {
                 // in-app: inject into host Activity's DecorView (no Accessibility)
-                val h = RdInputDispatch.inAppHandler ?: return
+                val h = inAppInputHandler
+                if (h == null) {
+                    Log.d(logTag, "rustPointerInput inapp mode but handler null, kind=$kind mask=$mask x=$x y=$y")
+                    return
+                }
                 when (kind) {
                     0 -> h.onTouchInput(mask, x, y)
                     1 -> h.onMouseInput(mask, x, y)
@@ -97,10 +101,9 @@ class MainService : Service() {
     }
 
     @Keep
-    @RequiresApi(Build.VERSION_CODES.N)
     fun rustKeyEventInput(input: ByteArray) {
-        if (RdInputDispatch.mode == 1) {
-            RdInputDispatch.inAppHandler?.onKeyEvent(input)
+        if (inputMode == 1) {
+            inAppInputHandler?.onKeyEvent(input)
         } else {
             InputService.ctx?.onKeyEvent(input)
         }
@@ -217,6 +220,24 @@ class MainService : Service() {
             get() = _isStart
         val isAudioStart: Boolean
             get() = _isAudioStart
+        /**
+         * Input-injection mode: 0 = accessibility (InputService), 1 = in-app.
+         * Set by RDMainActivity.onCreate before the service starts receiving
+         * events. Lives here (not in common.kt) so there is exactly one copy
+         * at runtime (common.kt is compiled into both :app and :rdsdk, which
+         * would give two independent static fields).
+         */
+        @Volatile
+        @JvmStatic
+        var inputMode = 0
+        /**
+         * Callback to the in-app input handler (set by RdInAppInputService via
+         * RDMainActivity). Null in accessibility mode or before the activity
+         * is created.
+         */
+        @Volatile
+        @JvmStatic
+        var inAppInputHandler: RdInputHandler? = null
     }
 
     private val logTag = "LOG_SERVICE"
@@ -519,7 +540,8 @@ class MainService : Service() {
         Handler(Looper.getMainLooper()).post {
             // In in-app input mode no Accessibility permission is needed, so
             // input is always considered ready.
-            val inputOk = if (RdInputDispatch.mode == 1) "true" else InputService.isOpen.toString()
+            val inputOk = if (inputMode == 1) "true" else InputService.isOpen.toString()
+            Log.d(logTag, "checkMediaPermission: inputMode=$inputMode inputOk=$inputOk")
             MainActivity.flutterMethodChannel?.invokeMethod(
                 "on_state_changed",
                 mapOf("name" to "input", "value" to inputOk)
