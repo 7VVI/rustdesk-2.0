@@ -148,10 +148,15 @@ object RdInAppInputService : RdInputHandler {
     }
 
     private fun dispatchPointer(action: Int, x: Float, y: Float) {
-        val act = activity ?: run {
-            Log.w(TAG, "dispatchPointer: activity is null, dropping action=$action")
+        // Prefer the lifecycle-tracked foreground Activity (covers the whole
+        // host app: device list, settings, business pages, ...). Fall back to
+        // the RDServerActivity reference (the RustDesk page itself) so that
+        // the SDK still works before the tracker sees a resume.
+        val act = RdForegroundActivityTracker.currentActivity ?: activity ?: run {
+            Log.w(TAG, "dispatchPointer: no foreground activity, dropping action=$action")
             return
         }
+        Log.d(TAG, "dispatchPointer target=${act.javaClass.simpleName} action=$action x=$x y=$y")
         val now = SystemClock.uptimeMillis()
         if (action == MotionEvent.ACTION_DOWN) {
             downTime = now
@@ -217,7 +222,7 @@ object RdInAppInputService : RdInputHandler {
                 }
 
             mainHandler.post {
-                val act = activity ?: return@post
+                val act = RdForegroundActivityTracker.currentActivity ?: activity ?: return@post
                 val dv = act.window?.decorView ?: return@post
                 try {
                     if (textToCommit != null) {

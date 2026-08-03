@@ -202,6 +202,10 @@ open class RDMainActivity : FlutterActivity() {
         if (MainService.inputMode == 1) {
             RdInAppInputService.activity = this
             MainService.inAppInputHandler = RdInAppInputService
+            // Track the foreground Activity across the whole host app so that
+            // remote input reaches any Activity (device list, settings, ...),
+            // not just the RustDesk ServerPage.
+            RdForegroundActivityTracker.register(application as android.app.Application)
         } else {
             RdInAppInputService.activity = null
             MainService.inAppInputHandler = null
