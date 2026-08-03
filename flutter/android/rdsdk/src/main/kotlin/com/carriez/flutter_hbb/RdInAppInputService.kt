@@ -172,26 +172,40 @@ object RdInAppInputService : RdInputHandler {
             0   // edgeFlags
         )
         me.source = InputDevice.SOURCE_TOUCHSCREEN
-        Log.d(TAG, "dispatchPointer action=$action x=$x y=$y decorView=${act.window?.decorView != null}")
+        // Dialogs/BottomSheets/popups live in separate Windows stacked above
+        // the Activity's main window. Find the top-most window (across the
+        // activity main window + any dialog/popup windows registered by the
+        // tracker) whose visible bounds contain (x,y) and dispatch there.
+        // This makes taps on a popup (e.g. "Add device" AlertDialog) land in
+        // the popup, not the dimmed activity behind it.
+        val candidates = mutableListOf<android.view.View>()
+        act.window?.decorView?.let { candidates.add(it) }
+        candidates.addAll(RdForegroundActivityTracker.snapshotDialogDecorViews())
+        val dv = candidates.reversed().firstOrNull { v ->
+            v.isShown && hitTestView(v, x, y)
+        } ?: candidates.lastOrNull()
+        Log.d(TAG, "dispatchPointer action=$action x=$x y=$y windows=${candidates.size} target=${dv?.javaClass?.simpleName}")
+        if (dv == null) {
+            me.recycle()
+            return
+        }
         mainHandler.post {
             try {
-                // Prefer dispatching to the content view (FlutterView lives
-                // inside it); fall back to decorView. Dispatching to decorView
-                // should also work (it propagates to children) but the content
-                // view is a more direct target.
-                val dv = act.window?.decorView
-                if (dv != null) {
-                    val handled = dv.dispatchTouchEvent(me)
-                    Log.d(TAG, "dispatchTouchEvent(decorView) result=$handled")
-                } else {
-                    Log.e(TAG, "decorView is null")
-                }
+                val handled = dv.dispatchTouchEvent(me)
+                Log.d(TAG, "dispatchTouchEvent result=$handled")
             } catch (e: Exception) {
                 Log.e(TAG, "dispatchTouchEvent failed: ${e.message}")
             } finally {
                 me.recycle()
             }
         }
+    }
+
+    private fun hitTestView(view: android.view.View, x: Float, y: Float): Boolean {
+        val loc = IntArray(2)
+        view.getLocationOnScreen(loc)
+        return x >= loc[0] && x <= loc[0] + view.width &&
+               y >= loc[1] && y <= loc[1] + view.height
     }
 
     /**
@@ -202,15 +216,17 @@ object RdInAppInputService : RdInputHandler {
     override fun onKeyEvent(data: ByteArray) {
         try {
             val keyEvent = hbb.MessageOuterClass.KeyEvent.parseFrom(data)
+            // Determine text to commit. Works across keyboard modes: the
+            // control-end sends chr (unicode) in Legacy/Translate modes and
+            // seq for multi-char input. Previously only Legacy was handled,
+            // so PC keyboards (default Translate) produced no text.
             var textToCommit: String? = null
             if (keyEvent.hasSeq()) {
                 textToCommit = keyEvent.seq
-            } else if (keyEvent.getMode() == hbb.MessageOuterClass.KeyboardMode.Legacy) {
-                if (keyEvent.hasChr() && (keyEvent.getDown() || keyEvent.getPress())) {
-                    val chr = keyEvent.getChr()
-                    if (chr != 0) {
-                        textToCommit = String(Character.toChars(chr))
-                    }
+            } else if (keyEvent.hasChr() && (keyEvent.getDown() || keyEvent.getPress())) {
+                val chr = keyEvent.getChr()
+                if (chr != 0) {
+                    textToCommit = String(Character.toChars(chr))
                 }
             }
 
@@ -223,16 +239,28 @@ object RdInAppInputService : RdInputHandler {
 
             mainHandler.post {
                 val act = RdForegroundActivityTracker.currentActivity ?: activity ?: return@post
-                val dv = act.window?.decorView ?: return@post
+                // Find the focused view across all windows (activity + dialogs).
+                // A dialog's EditText is focused inside the dialog window, not
+                // the activity window, so check dialog windows first.
+                val candidates = mutableListOf<android.view.View>()
+                candidates.addAll(RdForegroundActivityTracker.snapshotDialogDecorViews())
+                act.window?.decorView?.let { candidates.add(it) }
+                val dv = candidates.reversed().firstOrNull { it.isShown } ?: act.window?.decorView ?: return@post
                 try {
                     if (textToCommit != null) {
                         // Commit text through the focused view's InputConnection.
-                        val focused = act.currentFocus
+                        // Search the focused view in the top-most shown window.
+                        val focused = findFocusedTextView(act)
                         if (focused != null && focused.onCheckIsTextEditor()) {
                             val ic = focused.onCreateInputConnection(
                                 android.view.inputmethod.EditorInfo()
                             )
                             ic?.commitText(textToCommit, 1)
+                            Log.d(TAG, "commitText '$textToCommit' to ${focused.javaClass.simpleName}")
+                        } else {
+                            // Fallback: dispatch the text as key events.
+                            Log.d(TAG, "no text editor focused, dispatching key event")
+                            if (androidEvent != null) dv.dispatchKeyEvent(androidEvent)
                         }
                     }
                     if (androidEvent != null) {
@@ -252,5 +280,18 @@ object RdInAppInputService : RdInputHandler {
         } catch (e: Exception) {
             Log.e(TAG, "onKeyEvent parse failed: ${e.message}")
         }
+    }
+
+    /**
+     * Find the currently focused View that is a text editor, checking dialog
+     * windows first (their decorView has its own focus), then the activity.
+     */
+    private fun findFocusedTextView(act: android.app.Activity): android.view.View? {
+        // Dialog windows first (most likely to have the focused EditText).
+        for (dv in RdForegroundActivityTracker.snapshotDialogDecorViews().reversed()) {
+            val f = dv.findFocus()
+            if (f != null) return f
+        }
+        return act.currentFocus
     }
 }

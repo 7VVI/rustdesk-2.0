@@ -100,7 +100,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showAddDialog() {
         val input = EditText(this).apply { hint = "请输入机号(设备ID)" }
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle("新增设备")
             .setView(input)
             .setPositiveButton("添加") { _, _ ->
@@ -112,18 +112,42 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             .setNegativeButton("取消", null)
-            .show()
+            .create()
+        dialog.setOnShowListener {
+            // Register the dialog's window so remote input (taps + keyboard)
+            // reaches it. The SDK can't auto-enumerate dialog windows pre-API33.
+            dialog.window?.decorView?.let {
+                com.carriez.flutter_hbb.RdForegroundActivityTracker.registerDialogWindow(it)
+            }
+        }
+        dialog.setOnDismissListener {
+            dialog.window?.decorView?.let {
+                com.carriez.flutter_hbb.RdForegroundActivityTracker.unregisterDialogWindow(it)
+            }
+        }
+        dialog.show()
     }
 
     private fun confirmDelete(id: String) {
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle("删除设备")
             .setMessage("确定删除机号 $id ?")
             .setPositiveButton("删除") { _, _ ->
                 Prefs.removeDevice(this, id); reload()
             }
             .setNegativeButton("取消", null)
-            .show()
+            .create()
+        dialog.setOnShowListener {
+            dialog.window?.decorView?.let {
+                com.carriez.flutter_hbb.RdForegroundActivityTracker.registerDialogWindow(it)
+            }
+        }
+        dialog.setOnDismissListener {
+            dialog.window?.decorView?.let {
+                com.carriez.flutter_hbb.RdForegroundActivityTracker.unregisterDialogWindow(it)
+            }
+        }
+        dialog.show()
     }
 
     /**
