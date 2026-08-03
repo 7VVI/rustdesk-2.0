@@ -44,6 +44,18 @@ object RDMainRunner {
     @Keep
     const val KEY_PASSWORD = "password" // permanent password (optional)
 
+    /**
+     * Input-injection mode for the controlled-end:
+     * - `"inapp"` (default): inject pointer/key events into the host app's own
+     *   window via dispatchTouchEvent/dispatchKeyEvent. No Accessibility
+     *   permission required; only controls the app itself.
+     * - `"accessibility"`: use the system AccessibilityService (InputService),
+     *   can control across apps but requires the user to grant the system
+     *   Accessibility permission.
+     */
+    @Keep
+    const val KEY_INPUT_MODE = "inputMode"
+
     // ---------------------------------------------------------------------
     // Controlled-end (被控端): "Share screen" (ServerPage)
     // ---------------------------------------------------------------------
@@ -71,9 +83,10 @@ object RDMainRunner {
         relayServer: String,
         key: String,
         id: String = "",
-        password: String = ""
+        password: String = "",
+        inputMode: String = "inapp"
     ) {
-        RDServerActivity.start(context, idServer, relayServer, key, id, password)
+        RDServerActivity.start(context, idServer, relayServer, key, id, password, inputMode)
     }
 
     // ---------------------------------------------------------------------
@@ -122,9 +135,10 @@ object RDMainRunner {
         relayServer: String = "",
         key: String = "",
         id: String = "",
-        password: String = ""
+        password: String = "",
+        inputMode: String = "inapp"
     ): Intent {
-        return RDServerActivity.getIntent(context, idServer, relayServer, key, id, password)
+        return RDServerActivity.getIntent(context, idServer, relayServer, key, id, password, inputMode)
     }
 
     /**

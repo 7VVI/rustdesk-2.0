@@ -74,14 +74,23 @@ class MainService : Service() {
             Log.d(logTag,"Turn on Screen")
             wakeLock.acquire(5000)
         } else {
-            when (kind) {
-                0 -> { // touch
-                    InputService.ctx?.onTouchInput(mask, x, y)
+            if (RdInputDispatch.mode == 1) {
+                // in-app: inject into host Activity's DecorView (no Accessibility)
+                val h = RdInputDispatch.inAppHandler ?: return
+                when (kind) {
+                    0 -> h.onTouchInput(mask, x, y)
+                    1 -> h.onMouseInput(mask, x, y)
                 }
-                1 -> { // mouse
-                    InputService.ctx?.onMouseInput(mask, x, y)
-                }
-                else -> {
+            } else {
+                when (kind) {
+                    0 -> { // touch
+                        InputService.ctx?.onTouchInput(mask, x, y)
+                    }
+                    1 -> { // mouse
+                        InputService.ctx?.onMouseInput(mask, x, y)
+                    }
+                    else -> {
+                    }
                 }
             }
         }
@@ -90,7 +99,11 @@ class MainService : Service() {
     @Keep
     @RequiresApi(Build.VERSION_CODES.N)
     fun rustKeyEventInput(input: ByteArray) {
-        InputService.ctx?.onKeyEvent(input)
+        if (RdInputDispatch.mode == 1) {
+            RdInputDispatch.inAppHandler?.onKeyEvent(input)
+        } else {
+            InputService.ctx?.onKeyEvent(input)
+        }
     }
 
     @Keep
@@ -504,9 +517,12 @@ class MainService : Service() {
             )
         }
         Handler(Looper.getMainLooper()).post {
+            // In in-app input mode no Accessibility permission is needed, so
+            // input is always considered ready.
+            val inputOk = if (RdInputDispatch.mode == 1) "true" else InputService.isOpen.toString()
             MainActivity.flutterMethodChannel?.invokeMethod(
                 "on_state_changed",
-                mapOf("name" to "input", "value" to InputService.isOpen.toString())
+                mapOf("name" to "input", "value" to inputOk)
             )
         }
         return isReady

@@ -388,6 +388,7 @@ RDMainRunner.startConnectScreen(context, idServer, relayServer, key)            
 | `key` | 服务器公钥 | 可空 |
 | `id` | 固定设备号（被控端） | 空=随机生成；传入则注册为该机号，原理见 4.5 |
 | `password` | 固定密码（被控端） | 空=随机/不设 |
+| `inputMode` | 输入注入模式 | `"inapp"`(默认，免无障碍) / `"accessibility"`(跨 App，需无障碍授权)；详见 6.5 |
 
 自建服务器示例：
 ```kotlin
@@ -407,7 +408,40 @@ RDMainRunner.startServerScreen(
 ### 6.4 典型宿主流程（参考 demohost）
 - 设备列表点某设备 → `startServerScreen(context, idServer, relay, key, 机号, "")` → 直接进共享屏幕、授权录屏后可被远程控制。
 - 点"远程控制" → `startConnectScreen(context[, idServer, relay, key])` → 进连接页 → 输入对端机号 → push 进远程会话。
-- 服务器配置可由宿主自己的"设置页"保存到 `SharedPreferences`，启动界面时读出来传入。
+- 服务器配置可由宿主自己的“设置页”保存到 `SharedPreferences`，启动界面时读出来传入。
+
+### 6.5 输入控制模式（inputMode）
+
+被控端接收到的远端触摸/鼠标/键盘事件需要注入到本机。SDK 提供两种注入模式，由
+`startServerScreen(..., inputMode=...)` 选择：
+
+| 模式 | 值 | 是否需要无障碍权限 | 控制范围 | 适用场景 |
+|------|----|------------------|----------|----------|
+| App 内注入（默认） | `"inapp"` | 否 | 仅宿主 App 自己的窗口内 | Kiosk/独占前台 App；不需要跨 App 控制 |
+| 无障碍注入 | `"accessibility"` | 是（用户手动授权系统无障碍） | 跨 App / 全系统 | 需要控制 App 之外的界面 |
+
+#### 原理
+- **inapp**：远端事件经 Rust 核心 → `MainService.rustPointerInput` →
+  `RdInAppInputService` 直接 `dispatchTouchEvent` / `dispatchKeyEvent` 到宿主
+  Activity 的 `DecorView`，完全不需要系统无障碍权限。落在自己窗口外的事件静默丢弃。
+- **accessibility**：走原有 `InputService`（`AccessibilityService`），
+  `dispatchGesture` / `performAction`，可跨 App，但需用户在系统设置里授权无障碍。
+
+#### 选择
+```kotlin
+// 默认：App 内控制，不弹无障碍授权
+RDMainRunner.startServerScreen(context, idServer, relay, key, id, password)
+// 等价显式写法
+RDMainRunner.startServerScreen(context, idServer, relay, key, id, password, inputMode = "inapp")
+
+// 跨 App 控制（需用户授权无障碍）
+RDMainRunner.startServerScreen(context, idServer, relay, key, id, password, inputMode = "accessibility")
+```
+
+#### inapp 模式的限制
+- 仅控制宿主 App 自身窗口内的 UI；窗口外的点击静默丢弃。
+- 不支持系统级手势（Home/Back/Recents 全局键、通知栏下拉）——这些可由宿主 App 自己处理。
+- 鼠标滚轮/右键等高级手势暂不支持（静默丢弃），后续可扩展。
 
 ---
 
@@ -432,7 +466,7 @@ RDMainRunner.startServerScreen(
 object RDMainRunner {
     // 被控端（共享屏幕 / ServerPage）
     fun startServerScreen(context, id="", password="")
-    fun startServerScreen(context, idServer, relayServer, key, id="", password="")
+    fun startServerScreen(context, idServer, relayServer, key, id="", password="", inputMode="inapp")
 
     // 控制端（连接 / ConnectionPage）
     fun startConnectScreen(context)
@@ -441,7 +475,7 @@ object RDMainRunner {
     // 兼容别名（@Deprecated → startServerScreen）
     fun start(context, id="", password="")
     fun start(context, idServer, relayServer, key, id="", password="")
-    fun getIntent(context, idServer="", relayServer="", key="", id="", password=""): Intent
+    fun getIntent(context, idServer="", relayServer="", key="", id="", password="", inputMode="inapp"): Intent
 }
 ```
 

@@ -985,6 +985,7 @@ Future<void> applyCustomConfigAndStart(dynamic arguments) async {
     final key = getArg('key');
     final id = getArg('id');
     final password = getArg('password');
+    final inputMode = getArg('inputMode');
 
     // Self-hosted server config (id/rendezvous, relay, key).
     if (idServer.isNotEmpty || relayServer.isNotEmpty || key.isNotEmpty) {
@@ -1003,6 +1004,14 @@ Future<void> applyCustomConfigAndStart(dynamic arguments) async {
     // The host app decides when/why the controlled end goes online, so this
     // consumer-oriented warning is not applicable here.
     await bind.mainSetLocalOption(key: "show-scam-warning", value: "N");
+
+    // In-app input mode: no Accessibility permission is needed, so mark input
+    // as ready immediately. The Kotlin side (MainService) also reports input
+    // ready in this mode. "accessibility" mode keeps the default behavior
+    // (waits for the user to grant system Accessibility).
+    if (inputMode.isEmpty || inputMode == 'inapp') {
+      gFFI.serverModel.changeStatue('input', true);
+    }
 
     // Fixed permanent password. Setting the password alone is NOT enough:
     // the default verification method is "both", so the controlled end keeps

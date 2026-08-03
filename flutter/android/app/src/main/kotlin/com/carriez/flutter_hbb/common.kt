@@ -155,3 +155,32 @@ fun getScreenSize(windowManager: WindowManager) : Pair<Int, Int>{
     Log.d("common", "translate:$LOCAL_NAME")
     return FFI.translateLocale(LOCAL_NAME, input)
 }
+
+/**
+ * Shared input-injection dispatch point.
+ *
+ * MainService (in :app, the JNI entry from Rust) routes remote pointer/key
+ * events here. The default impl forwards to [InputService] (Accessibility).
+ * The rdsdk embedding installs [RdInAppInputService] to inject directly into
+ * the host Activity's DecorView without needing the Accessibility permission.
+ */
+interface RdInputHandler {
+    fun onMouseInput(mask: Int, x: Int, y: Int)
+    fun onTouchInput(mask: Int, x: Int, y: Int)
+    fun onKeyEvent(data: ByteArray)
+    /** Whether the handler is ready (e.g. accessibility service bound). */
+    val isReady: Boolean
+}
+
+object RdInputDispatch {
+    /** 0 = accessibility (InputService), 1 = in-app (RdInAppInputService). */
+    @Volatile
+    var mode: Int = 0
+    /**
+     * Optional in-app handler; installed by RdInAppInputService when the host
+     * Activity is created with mode=1. When null and mode=1, events are
+     * silently dropped (e.g. before the activity comes up).
+     */
+    @Volatile
+    var inAppHandler: RdInputHandler? = null
+}

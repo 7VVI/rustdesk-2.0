@@ -24,10 +24,11 @@ class RDServerActivity : RDMainActivity() {
             relayServer: String = "",
             key: String = "",
             id: String = "",
-            password: String = ""
+            password: String = "",
+            inputMode: String = "inapp"
         ): Intent = fillExtras(
             Intent(context, RDServerActivity::class.java),
-            idServer, relayServer, key, id, password
+            idServer, relayServer, key, id, password, inputMode
         )
 
         internal fun start(
@@ -36,11 +37,12 @@ class RDServerActivity : RDMainActivity() {
             relayServer: String,
             key: String,
             id: String,
-            password: String
+            password: String,
+            inputMode: String = "inapp"
         ) {
             RDMainActivity.start(
                 context,
-                getIntent(context, idServer, relayServer, key, id, password)
+                getIntent(context, idServer, relayServer, key, id, password, inputMode)
             )
         }
     }

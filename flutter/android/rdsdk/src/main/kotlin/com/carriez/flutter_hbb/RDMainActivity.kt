@@ -61,7 +61,8 @@ open class RDMainActivity : FlutterActivity() {
             relayServer: String = "",
             key: String = "",
             id: String = "",
-            password: String = ""
+            password: String = "",
+            inputMode: String = "inapp"
         ): Intent {
             return intent.apply {
                 putExtra(RDMainRunner.KEY_ID_SERVER, idServer)
@@ -69,6 +70,7 @@ open class RDMainActivity : FlutterActivity() {
                 putExtra(RDMainRunner.KEY_SERVER_KEY, key)
                 putExtra(RDMainRunner.KEY_ID, id)
                 putExtra(RDMainRunner.KEY_PASSWORD, password)
+                putExtra(RDMainRunner.KEY_INPUT_MODE, inputMode)
             }
         }
 
@@ -144,7 +146,9 @@ open class RDMainActivity : FlutterActivity() {
 
     override fun onResume() {
         super.onResume()
-        val inputPer = InputService.isOpen
+        // In in-app input mode no Accessibility permission is needed, so input
+        // is always considered ready.
+        val inputPer = if (RdInputDispatch.mode == 1) true else InputService.isOpen
         activity.runOnUiThread {
             flutterMethodChannel?.invokeMethod(
                 "on_state_changed",
@@ -159,6 +163,7 @@ open class RDMainActivity : FlutterActivity() {
                 it.getStringExtra(RDMainRunner.KEY_SERVER_KEY)?.let { v -> map["key"] = v }
                 it.getStringExtra(RDMainRunner.KEY_ID)?.let { v -> map["id"] = v }
                 it.getStringExtra(RDMainRunner.KEY_PASSWORD)?.let { v -> map["password"] = v }
+                it.getStringExtra(RDMainRunner.KEY_INPUT_MODE)?.let { v -> map["inputMode"] = v }
                 flutterMethodChannel?.invokeMethod("custom_config", map)
             }
         }
@@ -184,6 +189,17 @@ open class RDMainActivity : FlutterActivity() {
             _rdClipboardManager = RdClipboardManager(getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
             FFI.setClipboardManager(_rdClipboardManager!!)
         }
+        // Input-injection mode: "inapp" (default, no Accessibility needed) or
+        // "accessibility" (cross-app, requires the system a11y permission).
+        val mode = intent?.getStringExtra(RDMainRunner.KEY_INPUT_MODE) ?: "inapp"
+        RdInputDispatch.mode = if (mode == "accessibility") 0 else 1
+        if (RdInputDispatch.mode == 1) {
+            RdInAppInputService.activity = this
+            RdInputDispatch.inAppHandler = RdInAppInputService
+        } else {
+            RdInAppInputService.activity = null
+            RdInputDispatch.inAppHandler = null
+        }
     }
 
     override fun onDestroy() {
@@ -195,6 +211,14 @@ open class RDMainActivity : FlutterActivity() {
         // natives don't invoke methods on a dead engine.
         if (MainActivity.flutterMethodChannel === flutterMethodChannel) {
             MainActivity.flutterMethodChannel = null
+        }
+        // Clear the in-app input handler so injected events stop targeting a
+        // destroyed activity.
+        if (RdInAppInputService.activity === this) {
+            RdInAppInputService.activity = null
+        }
+        if (RdInputDispatch.inAppHandler === RdInAppInputService) {
+            RdInputDispatch.inAppHandler = null
         }
         super.onDestroy()
     }
