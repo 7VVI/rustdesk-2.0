@@ -222,13 +222,15 @@ open class RDMainActivity : FlutterActivity() {
         if (MainActivity.flutterMethodChannel === flutterMethodChannel) {
             MainActivity.flutterMethodChannel = null
         }
-        // Clear the in-app input handler so injected events stop targeting a
-        // destroyed activity.
+        // Clear the fallback activity reference, but do NOT clear
+        // MainService.inAppInputHandler — the handler uses
+        // RdForegroundActivityTracker.currentActivity (which follows the
+        // foreground activity lifecycle) and must keep working after this
+        // activity is destroyed (e.g. user navigated to another host-app page).
+        // The handler is only cleared when the controlled service is stopped
+        // (see the "stop_service" channel handler).
         if (RdInAppInputService.activity === this) {
             RdInAppInputService.activity = null
-        }
-        if (MainService.inAppInputHandler === RdInAppInputService) {
-            MainService.inAppInputHandler = null
         }
         super.onDestroy()
     }
@@ -270,6 +272,10 @@ open class RDMainActivity : FlutterActivity() {
                 }
                 "stop_service" -> {
                     Log.d(logTag, "Stop service")
+                    // When the service is explicitly stopped, clear the in-app
+                    // input handler so no more events are injected.
+                    MainService.inAppInputHandler = null
+                    RdInAppInputService.activity = null
                     mainService?.let {
                         it.destroy()
                         result.success(true)
