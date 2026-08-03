@@ -189,10 +189,19 @@ object RdInAppInputService : RdInputHandler {
             me.recycle()
             return
         }
+        // Translate screen coordinates to the target view's LOCAL coordinates.
+        // The activity's main decorView sits at (0,0) full-screen so the offset
+        // is 0, but a dialog is a floating window at a non-zero origin and its
+        // decorView expects local coords. Without this translation the touch
+        // lands outside the dialog box and AlertDialog dismisses it as an
+        // outside touch (and buttons/EditText never receive the event).
+        val loc = IntArray(2)
+        dv.getLocationOnScreen(loc)
+        me.offsetLocation(-loc[0].toFloat(), -loc[1].toFloat())
         mainHandler.post {
             try {
                 val handled = dv.dispatchTouchEvent(me)
-                Log.d(TAG, "dispatchTouchEvent result=$handled")
+                Log.d(TAG, "dispatchTouchEvent result=$handled localX=${me.x} localY=${me.y}")
             } catch (e: Exception) {
                 Log.e(TAG, "dispatchTouchEvent failed: ${e.message}")
             } finally {
