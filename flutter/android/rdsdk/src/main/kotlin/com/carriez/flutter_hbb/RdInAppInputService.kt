@@ -1,6 +1,7 @@
 package com.carriez.flutter_hbb
 
 import android.app.Activity
+import android.content.Intent
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -22,7 +23,10 @@ import kotlin.math.max
  * cross-app control):
  * - Only events landing inside the host app's own window are delivered;
  *   anything outside is silently dropped.
- * - No system-level gestures (Home/Recents/global Back, notification shade).
+ * - System-level Back (mouse back button) and Home (wheel button) are
+ *   supported without Accessibility — Back via key dispatch, Home via
+ *   a Home Intent. Recents and notification shade are not supported;
+ *   the host app can switch to `accessibility` mode for those.
  *
  * Touch/pointer coordinates are scaled by [SCREEN_INFO.scale] exactly like
  * [InputService], so the remote (control-end) coordinates map to the same
@@ -42,7 +46,11 @@ object RdInAppInputService : RdInputHandler {
     private const val LEFT_MOVE = 8
     private const val LEFT_UP = 10
     private const val RIGHT_UP = 18
-    // wheel/back are not supported in in-app mode (silently dropped)
+    // System gestures: Back (mouse back button) and Home (wheel button short
+    // press) are supported without Accessibility. Recents (wheel button long
+    // press) still requires Accessibility and is dropped in in-app mode.
+    private const val BACK_UP = 66
+    private const val WHEEL_BUTTON_UP = 34
 
     // ---- touch masks ----
     private const val TOUCH_PAN_START = 4
@@ -99,6 +107,35 @@ object RdInAppInputService : RdInputHandler {
                 pointerDown = true
                 Log.d(TAG, "onMouseInput DOWN -> mx=$mouseX my=$mouseY (raw x=$x y=$y)")
                 dispatchPointer(MotionEvent.ACTION_DOWN, mouseX, mouseY)
+            }
+            BACK_UP -> {
+                // Mouse back button → system Back. Dispatch KEYCODE_BACK to
+                // the top-most window (dialog if showing, else activity) so a
+                // dialog closes first; otherwise Activity.onBackPressed fires.
+                Log.d(TAG, "onMouseInput BACK (mask=$mask)")
+                mainHandler.post {
+                    val act = RdForegroundActivityTracker.currentActivity ?: activity ?: return@post
+                    val candidates = mutableListOf<android.view.View>()
+                    candidates.addAll(RdForegroundActivityTracker.snapshotDialogDecorViews())
+                    act.window?.decorView?.let { candidates.add(it) }
+                    val dv = candidates.reversed().firstOrNull { it.isShown } ?: act.window?.decorView ?: return@post
+                    dv.dispatchKeyEvent(KeyEventAndroid(KeyEventAndroid.ACTION_DOWN, KeyEventAndroid.KEYCODE_BACK))
+                    dv.dispatchKeyEvent(KeyEventAndroid(KeyEventAndroid.ACTION_UP, KeyEventAndroid.KEYCODE_BACK))
+                }
+            }
+            WHEEL_BUTTON_UP -> {
+                // Wheel button short press → Home. KEYCODE_HOME is intercepted
+                // at the system level and never reaches app windows, so use a
+                // Home Intent instead — any app can send this without permission.
+                Log.d(TAG, "onMouseInput HOME (mask=$mask)")
+                mainHandler.post {
+                    val act = RdForegroundActivityTracker.currentActivity ?: activity ?: return@post
+                    val intent = Intent(Intent.ACTION_MAIN).apply {
+                        addCategory(Intent.CATEGORY_HOME)
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    act.startActivity(intent)
+                }
             }
             LEFT_UP, RIGHT_UP -> {
                 pointerDown = false

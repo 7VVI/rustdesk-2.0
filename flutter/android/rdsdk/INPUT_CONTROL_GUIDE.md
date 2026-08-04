@@ -47,10 +47,12 @@ Flutter/Android 原生的 View 树正常接收触摸事件的入口就是 `Decor
   → MainService.rustPointerInput(kind=1, mask, x, y)
   → RdInAppInputService.onMouseInput(mask, x, y)
       1. 跟踪鼠标位置: x/y 非零时更新 mouseX/mouseY (×SCREEN_INFO.scale)
-      2. mask=LEFT_DOWN  → dispatchPointer(ACTION_DOWN, mouseX, mouseY)
-         mask=LEFT_UP    → dispatchPointer(ACTION_UP,   mouseX, mouseY)
-         mask=LEFT_MOVE   → dispatchPointer(ACTION_MOVE, mouseX, mouseY) [拖拽中]
-         mask=0           → 仅更新位置(不dispatch)
+      2. mask=LEFT_DOWN     → dispatchPointer(ACTION_DOWN, mouseX, mouseY)
+         mask=LEFT_UP       → dispatchPointer(ACTION_UP,   mouseX, mouseY)
+         mask=LEFT_MOVE      → dispatchPointer(ACTION_MOVE, mouseX, mouseY) [拖拽中]
+         mask=BACK_UP(66)   → dispatchBack()   [见 §2.5 系统手势]
+         mask=WHEEL_BUTTON_UP(34) → goHome()    [见 §2.5 系统手势]
+         mask=0              → 仅更新位置(不dispatch)
   → dispatchPointer(action, x, y)
       1. 找目标 DecorView(见下文"弹窗支持")
       2. 构造 MotionEvent(downTime, action, x, y, source=TOUCHSCREEN)
@@ -70,6 +72,8 @@ PC 控制端 `sessionSendMouse({type:'down', buttons:'left'})` **不带 x/y 坐�
 | `8` (LEFT_MOVE) | 左键拖拽移动 | x/y=光标位置 | 更新 + dispatch MOVE |
 | `9` (LEFT_DOWN) | 左键按下 | **x/y=0** | dispatch DOWN at mouseX/mouseY |
 | `10` (LEFT_UP) | 左键抬起 | **x/y=0** | dispatch UP at mouseX/mouseY |
+| `66` (BACK_UP) | 鼠标侧键 Back | x/y=0 | dispatch KEYCODE_BACK (见 §2.5) |
+| `34` (WHEEL_BUTTON_UP) | 滚轮短按 | x/y=0 | 发 Home Intent (见 §2.5) |
 
 mask 组成：`type(低3位) | (button << 3)`
 - `MOUSE_TYPE_DOWN=1`, `MOUSE_TYPE_UP=2`, `MOUSE_TYPE_MOVE=0`
@@ -226,7 +230,58 @@ if (focused != null && focused.onCheckIsTextEditor()) {
 
 > 注意：Android 13+（API 33）且存在文本时，跳过 `KeyEventConverter.toAndroidKeyEvent`（不构造物理按键 KeyEvent），避免干扰 `commitText` 的结果。
 
-### 2.5 触摸事件（触控板/手机端控制）
+### 2.5 系统手势（Back / Home）
+
+**问题**：accessibility 模式用 `performGlobalAction()` 实现系统手势，这需要无障碍权限。inapp 模式需要免权限的替代方案。
+
+**解决**：Back 和 Home 都可以免权限实现，但机制不同：
+
+#### Back（mask=66, BACK_UP）
+
+`dispatchKeyEvent(KEYCODE_BACK)` 到 DecorView 就能触发 `Activity.onBackPressed()`。这正是系统本身分发 Back 键的路径：
+```
+系统投递 Back 键 → InputEventReceiver → DecorView.dispatchKeyEvent → View 树 → onBackPressed()
+```
+
+在 inapp 模式里 dispatch KEYCODE_BACK 到 DecorView，等效于从第 2 步注入，后续链路完全相同。
+
+dispatch 到最上层的 window（弹窗优先，否则 Activity），这样弹窗打开时 Back 先关闭弹窗，否则触发 Activity 回退：
+```kotlin
+// 找到最上层 window
+val candidates = mutableListOf<View>()
+candidates.addAll(RdForegroundActivityTracker.snapshotDialogDecorViews())  // 弹窗(上)
+act.window?.decorView?.let { candidates.add(it) }                        // 主 window(底)
+val dv = candidates.reversed().firstOrNull { it.isShown }               // 从上往下找
+// dispatch DOWN + UP
+dv.dispatchKeyEvent(KeyEvent(ACTION_DOWN, KEYCODE_BACK))
+dv.dispatchKeyEvent(KeyEvent(ACTION_UP, KEYCODE_BACK))
+```
+
+#### Home（mask=34, WHEEL_BUTTON_UP）
+
+`dispatchKeyEvent(KEYCODE_HOME)` 到 DecorView **不行** — 系统在 `InputManagerService` 层拦截了 HOME 键，不会投递到任何 App 窗口。
+
+但可以用免权限的 Home Intent：
+```kotlin
+val intent = Intent(Intent.ACTION_MAIN).apply {
+    addCategory(Intent.CATEGORY_HOME)
+    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+}
+act.startActivity(intent)
+```
+任何 App 都可以发这个 Intent 启动桌面，不需要特殊权限。效果与按 Home 键一致。
+
+#### Recents（mask=33, WHEEL_BUTTON_DOWN 长按）
+
+**不支持**。`KEYCODE_APP_SWITCH` 是系统级按键，与 HOME 一样在 `InputManagerService` 层被拦截。且没有公开 API 能打开 Recents 界面。需无障碍权限的 `performGlobalAction(GLOBAL_ACTION_RECENTS)` 才能实现。
+
+| 手势 | 能否支持（免权限） | 实现方式 |
+|------|------------------|--------|
+| **Back** | **可以** | `dispatchKeyEvent(KEYCODE_BACK)` 到顶层 DecorView |
+| **Home** | **可以** | `startActivity(Intent(ACTION_MAIN, CATEGORY_HOME))` |
+| **Recents** | **不可以** | 需无障碍权限，无免权限替代方案 |
+
+### 2.6 触摸事件（触控板/手机端控制）
 
 触控板手势 `TOUCH_PAN_*` 与鼠标不同：
 - `TOUCH_PAN_START(4)`：绝对起始坐标 → ACTION_DOWN
@@ -253,8 +308,11 @@ if (focused != null && focused.onCheckIsTextEditor()) {
 | 权限 | **无需任何特殊权限** | 需用户手动授权系统无障碍 |
 | 控制范围 | **整个宿主 App**（所有 Activity + 弹窗） | 全系统所有 App |
 | 注入方式 | `dispatchTouchEvent` / `commitText` | `dispatchGesture` / `performAction` |
-| 系统手势(Home/Back) | 不支持（可由宿主自己处理） | 部分支持 |
+| 系统手势 Back | **支持**（dispatchKeyEvent KEYCODE_BACK） | 支持 |
+| 系统手势 Home | **支持**（Home Intent） | 支持 |
+| 系统手势 Recents | 不支持（需无障碍权限） | 支持 |
 | 鼠标滚轮/右键 | 暂不支持（静默丢弃） | 支持 |
+| 鼠标侧键 Back | **支持**（KEYCODE_BACK dispatch） | 支持（performGlobalAction） |
 | 宿主弹窗 | 需 `registerDialogWindow` 注册 | 自动支持 |
 | 弹窗坐标 | SDK 自动转换屏幕→本地坐标 | 系统自动处理 |
 | 键盘输入 | 所有模式(Translate/Legacy/Map)均支持 | 支持 |
@@ -412,6 +470,8 @@ adb logcat -s rd-inapp-input:* rd-fg-tracker:* LOG_SERVICE:* mRDMainActivity:*
 | 弹窗点击无效 | `rd-fg-tracker: dialog window +` 是否出现？未注册则需宿主调 `registerDialogWindow` |
 | 弹窗点击后自动关闭 | 坐标转换是否生效？检查 `dispatchTouchEvent result=... localX=... localY=` 中 localX/localY 是否在弹窗范围内 |
 | 键盘不输入 | `commitText 'x' to ...` 是否出现？`findFocusedTextView` 是否找到 EditText？ |
+| Back 不生效 | `onMouseInput BACK (mask=66)` 是否出现？是否有前台 Activity？ |
+| Home 不生效 | `onMouseInput HOME (mask=34)` 是否出现？是否被宿主拦截了 Home Intent？ |
 | `onResume: inputPer=false` | `MainService.inputMode` 是否=1？(检查 onCreate 日志) |
 
 ---
@@ -428,3 +488,5 @@ adb logcat -s rd-inapp-input:* rd-fg-tracker:* LOG_SERVICE:* mRDMainActivity:*
 | `2a8c706` | 弹窗可控 + 键盘全模式支持 |
 | `a95c804` | 新增实现文档 |
 | `ff68747` | 修复弹窗坐标偏移（屏幕→本地坐标转换） |
+| `16fe2b7` | 文档补充弹窗注册原理与坐标转换说明 |
+| (待定) | 新增 Back/Home 系统手势支持（免权限） |
