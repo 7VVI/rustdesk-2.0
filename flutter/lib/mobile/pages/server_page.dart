@@ -1024,9 +1024,26 @@ Future<void> applyCustomConfigAndStart(dynamic arguments) async {
           key: kOptionVerificationMethod, value: kUsePermanentPassword);
     }
 
-    // Start the controlled service first so the rendezvous connection is up.
-    if (!gFFI.serverModel.isStart) {
-      await gFFI.serverModel.startService();
+    // Check whether the Rust core is already running with the same id.
+    // When the user closes the Activity and reopens it, a new Flutter engine is
+    // created with _isStart=false, but the Rust rendezvous mediator may still
+    // be online. Calling startService() + mainChangeId() unconditionally causes
+    // a double restart race that breaks the connection.
+    final currentId = await bind.mainGetMyId();
+    final stopService = await bind.mainGetOption(key: 'stop-service');
+    final rustCoreRunning = stopService != 'Y';
+    final idAlreadySet = currentId == id;
+
+    if (rustCoreRunning && idAlreadySet) {
+      // Rust core is already online with the correct id — do NOT call
+      // startService()/mainChangeId() to avoid a double-restart race.
+      // Just sync the Dart model so ServerPage shows the right state.
+      debugPrint('rdsdk: service already running with id=$id, skip restart');
+    } else {
+      // Rust core is stopped, or the id differs — (re)start the service.
+      if (!gFFI.serverModel.isStart) {
+        await gFFI.serverModel.startService();
+      }
     }
 
     // Fixed device id. It must be registered against the rendezvous server, so
@@ -1034,7 +1051,10 @@ Future<void> applyCustomConfigAndStart(dynamic arguments) async {
     // server-config reconnect and silently keeps the auto-generated id).
     // NOTE: the RustDesk core requires the id to start with a letter and be
     // 6-16 [A-Za-z0-9_] chars; a purely numeric id is rejected.
-    if (id.isNotEmpty) {
+    // Only change the id when it differs from the current one. Calling
+    // mainChangeId with the same id sends register_pk{old=id,new=id} which can
+    // return ID_EXISTS, causing a half-restarted mediator state.
+    if (id.isNotEmpty && !idAlreadySet) {
       await bind.mainChangeId(newId: id);
       var status = await bind.mainGetAsyncStatus();
       var waited = 0;

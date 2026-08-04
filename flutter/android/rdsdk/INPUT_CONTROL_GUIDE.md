@@ -489,4 +489,4 @@ adb logcat -s rd-inapp-input:* rd-fg-tracker:* LOG_SERVICE:* mRDMainActivity:*
 | `a95c804` | 新增实现文档 |
 | `ff68747` | 修复弹窗坐标偏移（屏幕→本地坐标转换） |
 | `16fe2b7` | 文档补充弹窗注册原理与坐标转换说明 |
-| (待定) | 新增 Back/Home 系统手势支持（免权限） |
+| `2acea32` | 新增 Back/Home 系统手势支持（免权限） |
