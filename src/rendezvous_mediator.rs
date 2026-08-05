@@ -791,7 +791,14 @@ impl RendezvousMediator {
                 self.host,
                 Config::get_id()
             );
-            return Ok(());
+            // Mark key unconfirmed and RE-REGISTER immediately. Without this the
+            // key stays confirmed and register_peer() only sends RegisterPeer
+            // (no PK), so the server never re-binds the id after a mismatch —
+            // e.g. after switching back to a previously used id the server may
+            // answer UUID_MISMATCH forever and the id stays unusable.
+            Config::set_key_confirmed(false);
+            Config::set_host_key_confirmed(&self.host_prefix, false);
+            return self.register_pk(socket).await;
         }
         {
             let mut solving = SOLVING_PK_MISMATCH.lock().await;

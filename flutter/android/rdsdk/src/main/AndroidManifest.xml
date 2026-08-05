@@ -51,11 +51,12 @@
             android:theme="@style/LaunchTheme"
             android:windowSoftInputMode="adjustResize" />
 
-        <!-- Controlled-end only: "Share screen" (ServerPage). -->
+        <!-- Controlled-end only: "Share screen" (ServerPage).
+        TEMP-TEST: exported=true only for emulator am start testing; revert to false. -->
         <activity
             android:name=".RDServerActivity"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode|navigation"
-            android:exported="false"
+            android:exported="true"
             android:hardwareAccelerated="true"
             android:launchMode="singleTop"
             android:theme="@style/LaunchTheme"

@@ -33,6 +33,11 @@ android {
         targetSdkVersion 33
         versionCode 1
         versionName "1.0"
+        // Emulator testing only: single ABI keeps the APK small so the
+        // software-emulated (no KVM) device can install/run it reliably.
+        ndk {
+            abiFilters "x86_64"
+        }
     }
 
     compileOptions {

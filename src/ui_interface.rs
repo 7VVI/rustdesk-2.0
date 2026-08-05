@@ -1521,9 +1521,20 @@ pub async fn change_id_shared_(id: String, old_id: String) -> &'static str {
     // those mean the id is unusable — the ordinary mediator registration (the
     // same path auto-generated numeric ids use) will register whatever id is in
     // the config. So apply the id locally for every result EXCEPT a genuinely
-    // invalid format or an id already taken by another device.
+    // invalid format.
+    //
+    // "Not available" (ID_EXISTS) is also applied: when switching back to an
+    // id this device used before, the server may still see a stale binding for
+    // it (e.g. the previous rename did not fully release the id) and answer
+    // ID_EXISTS even though the binding belongs to THIS device. Skipping the
+    // apply here would silently keep the device on the previous id — the
+    // symptom is "switching back to the old id fails, only a brand-new id
+    // works". Forcing the apply lets the mediator's ordinary register_pk
+    // (without old_id) re-register; if the id is genuinely owned by ANOTHER
+    // device the mediator keeps retrying with KEEP_FIXED_ID and stays on the
+    // configured id instead of losing it.
     #[cfg(any(target_os = "android", target_os = "ios"))]
-    let apply_locally = err != INVALID_FORMAT && err != "Not available";
+    let apply_locally = err != INVALID_FORMAT;
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let apply_locally = err.is_empty();
 
