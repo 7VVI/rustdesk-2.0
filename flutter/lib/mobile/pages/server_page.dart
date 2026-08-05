@@ -1031,8 +1031,15 @@ Future<void> applyCustomConfigAndStart(dynamic arguments) async {
     // a double restart race that breaks the connection.
     final currentId = await bind.mainGetMyId();
     final stopService = await bind.mainGetOption(key: 'stop-service');
-    final rustCoreRunning = stopService != 'Y';
+    // stop-service is a PERSISTENT option ("" once the service ever started),
+    // so it cannot tell whether the Rust core is alive in THIS process. After
+    // a force-stop / fresh process start it is still "" although nothing is
+    // running — skipping startService() then leaves the device offline.
+    // gFFI.serverModel.isStart is the in-process flag: true only when this
+    // process already started the service (same-process Activity relaunch).
+    final rustCoreRunning = stopService != 'Y' && gFFI.serverModel.isStart;
     final idAlreadySet = currentId == id;
+    debugPrint("rdsdk cfgCheck: currentId='$currentId' want='$id' stopService='$stopService' isStart=${gFFI.serverModel.isStart}");
 
     if (rustCoreRunning && idAlreadySet) {
       // Rust core is already online with the correct id — do NOT call

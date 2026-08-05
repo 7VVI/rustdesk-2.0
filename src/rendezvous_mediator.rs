@@ -118,19 +118,23 @@ impl RendezvousMediator {
     }
 
     pub async fn start_all() {
+        log::info!("start_all: begin");
         crate::test_nat_type();
+        log::info!("start_all: after test_nat_type");
         if config::is_outgoing_only() {
             loop {
                 sleep(1.).await;
             }
         }
         crate::hbbs_http::sync::start();
+        log::info!("start_all: after hbbs_http");
         #[cfg(target_os = "windows")]
         if crate::platform::is_installed() && crate::is_server() {
             crate::updater::start_auto_update();
         }
         check_zombie();
         let server = new_server();
+        log::info!("start_all: after new_server");
         if config::option2bool("stop-service", &Config::get_option("stop-service")) {
             crate::test_rendezvous_server();
         }
@@ -153,7 +157,9 @@ impl RendezvousMediator {
             crate::platform::linux_desktop_manager::start_xdesktop();
         }
         scrap::codec::test_av1();
+        log::info!("start_all: after test_av1, entering loop");
         *LAST_NOT_DEPLOYED_REGISTER.lock().await = None;
+        log::info!("start_all: loop begin");
         loop {
             let timeout = Arc::new(RwLock::new(CONNECT_TIMEOUT));
             let conn_start_time = Instant::now();
